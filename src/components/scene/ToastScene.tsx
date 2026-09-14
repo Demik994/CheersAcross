@@ -3,15 +3,17 @@
 import type { RefObject } from "react";
 import { Canvas } from "@react-three/fiber";
 import { ContactShadows, Environment, Lightformer, OrbitControls } from "@react-three/drei";
-import type { GlassTargets, LiveInfo } from "@/hooks/useLiveRoom";
+import type { ClinkEvent, GlassTargets, LiveInfo } from "@/hooks/useLiveRoom";
+import { DRINK_DURATION_MS, REVEAL_ALREADY_DONE, seatAngle } from "@/lib/party/geometry";
 import type { GlassPosition } from "@/lib/party/protocol";
 import type { PublicGuest } from "@/lib/rooms/types";
 import CameraRig, { DEFAULT_TARGET } from "./CameraRig";
 import CelebrationPhoto from "./CelebrationPhoto";
+import ClinkBursts from "./ClinkBursts";
+import Confetti from "./Confetti";
 import GuestGlass from "./GuestGlass";
 import GuestSeat from "./GuestSeat";
 import ResponsiveCamera from "./ResponsiveCamera";
-import { seatAngle } from "./seating";
 import Table, { TABLE_TOP_Y } from "./Table";
 import TableSpace from "./TableSpace";
 
@@ -21,22 +23,36 @@ export type ToastSceneProps = {
   /** null dok real-time veza još nije javila stanje — tada sve prikazujemo kao online */
   live: LiveInfo | null;
   glassTargets: RefObject<GlassTargets>;
+  clinkEvents: RefObject<ClinkEvent[]>;
   onMyGlassMove: (position: GlassPosition | null) => void;
+  /** performance.now() početka pijenja (null = runda nije gotova) */
+  revealStartedAt: number | null;
   photoUrl: string | null;
   photoRevealed: boolean;
 };
+
+function badgeFor(live: LiveInfo | null, guestId: string) {
+  if (!live) return null;
+  if (live.phase === "lobby" && live.ready.has(guestId)) return { icon: "🥂", label: "spreman" };
+  if (live.phase === "toasting" && live.clinked.has(guestId)) return { icon: "✅", label: "kucnuo se" };
+  return null;
+}
 
 export default function ToastScene({
   guests,
   meId,
   live,
   glassTargets,
+  clinkEvents,
   onMyGlassMove,
+  revealStartedAt,
   photoUrl,
   photoRevealed,
 }: ToastSceneProps) {
   const myIndex = Math.max(0, guests.findIndex((g) => g.id === meId));
   const toasting = live?.phase === "toasting";
+  const confettiAt =
+    revealStartedAt !== null && revealStartedAt !== REVEAL_ALREADY_DONE ? revealStartedAt + DRINK_DURATION_MS : null;
 
   return (
     <Canvas
@@ -75,22 +91,26 @@ export default function ToastScene({
                 angle={angle}
                 isMe={isMe}
                 offline={live !== null && !live.online.has(guest.id)}
-                ready={live?.ready.has(guest.id) ?? false}
+                badge={badgeFor(live, guest.id)}
+                showLabel={!photoRevealed}
               />
               <GuestGlass
                 guest={guest}
                 angle={angle}
                 isMe={isMe}
-                draggable={isMe && toasting && !photoRevealed}
+                draggable={isMe && toasting}
                 glassTargets={glassTargets}
                 onMove={onMyGlassMove}
+                revealStartedAt={revealStartedAt}
               />
             </group>
           );
         })}
+        <ClinkBursts events={clinkEvents} />
       </TableSpace>
 
       <CelebrationPhoto url={photoUrl} revealed={photoRevealed} />
+      <Confetti startAt={confettiAt} />
 
       <ContactShadows
         position={[0, TABLE_TOP_Y + 0.002, 0]}

@@ -1,5 +1,13 @@
 import { routePartykitRequest, Server, type Connection, type ConnectionContext, type WSMessage } from "partyserver";
 import {
+  CLINK_DISTANCE,
+  SOLO_CLINK_RADIUS,
+  distance,
+  distanceToSegment,
+  glassRestPosition,
+  seatAngle,
+} from "../../src/lib/party/geometry";
+import {
   MAX_GLASS_RADIUS,
   PARTY_NAME,
   type ClientMessage,
@@ -17,26 +25,40 @@ type GuestConnection = Connection<ConnectionState>;
 
 const GUEST_HEADER = "x-cheers-guest-id";
 const MAX_MESSAGE_BYTES = 2048;
+/** Isti par čaša ne može "zazvoniti" češće od ovoga (ms) */
+const CLINK_COOLDOWN_MS = 500;
+/** Histereza: par se mora razdvojiti malo više prije novog kucanja */
+const CLINK_RELEASE_DISTANCE = CLINK_DISTANCE * 1.3;
 
 /**
  * Jedna soba = jedan Durable Object. Drži "živo" stanje sobe:
- * tko je spojen, tko je kliknuo "Nazdravi" i gdje su čaše koje se vuku.
+ * tko je spojen, tko je spreman, gdje su čaše koje se vuku i tko se kucnuo.
  * Trajne podatke (gosti, pića, slika) šalje Next.js nakon svake promjene.
+ *
+ * Kucanje prepoznaje server (a ne preglednici), pa svi gosti čuju "cling"
+ * u istom trenutku i nitko ne može "varati" s brojem kucanja.
  *
  * Hibernacija: kad nitko ništa ne šalje, objekt se uspava i ne troši kvotu.
  * Zato je sve što mora preživjeti buđenje u storageu, a id gosta u stanju konekcije.
+ * Pozicije čaša u zraku su samo u memoriji — dok netko vuče čašu, objekt je budan.
  */
 export class ToastRoom extends Server<Env> {
   static options = { hibernate: true };
 
   private room: RoomState | null = null;
   private ready = new Set<string>();
+  private clinked = new Set<string>();
   private phase: ToastPhase = "lobby";
 
+  private held = new Map<string, GlassPosition>();
+  private touching = new Set<string>();
+  private lastClinkAt = new Map<string, number>();
+
   async onStart() {
-    const stored = await this.ctx.storage.get<unknown>(["room", "ready", "phase"]);
+    const stored = await this.ctx.storage.get<unknown>(["room", "ready", "clinked", "phase"]);
     this.room = (stored.get("room") as RoomState | undefined) ?? null;
     this.ready = new Set((stored.get("ready") as string[] | undefined) ?? []);
+    this.clinked = new Set((stored.get("clinked") as string[] | undefined) ?? []);
     this.phase = (stored.get("phase") as ToastPhase | undefined) ?? "lobby";
   }
 
@@ -85,7 +107,25 @@ export class ToastRoom extends Server<Env> {
       case "glass": {
         if (this.phase !== "toasting") return;
         const position = sanitizePosition(message.position);
+        const previous = this.held.get(guestId) ?? null;
+        if (position) {
+          this.held.set(guestId, position);
+        } else {
+          // Čaša se vraća na mjesto — sljedeći dodir s istim gostom opet zvoni
+          this.held.delete(guestId);
+          for (const key of this.touching) if (key.split("|").includes(guestId)) this.touching.delete(key);
+        }
         this.broadcastMessage({ type: "glass", guestId, position }, [connection.id]);
+        if (position) await this.detectClinks(guestId, previous, position);
+        return;
+      }
+      case "reset": {
+        if (guestId !== this.room?.hostId) return;
+        this.phase = "lobby";
+        this.ready.clear();
+        this.resetRound();
+        await this.persist();
+        this.broadcastSnapshot();
         return;
       }
     }
@@ -96,6 +136,7 @@ export class ToastRoom extends Server<Env> {
     if (!guestId) return;
     // Ako je gost vukao čašu kad mu je pukla veza, vrati je na mjesto kod ostalih
     if (!this.onlineGuestIds(connection.id).has(guestId)) {
+      this.held.delete(guestId);
       this.broadcastMessage({ type: "glass", guestId, position: null }, [connection.id]);
     }
     this.broadcastSnapshot(connection.id);
@@ -120,8 +161,10 @@ export class ToastRoom extends Server<Env> {
     this.room = update.state;
     const guestIds = new Set(this.room.guests.map((g) => g.id));
 
-    // Uklonjeni gosti: makni im spremnost i zatvori im konekcije
+    // Uklonjeni gosti: makni im spremnost/kucanje i zatvori im konekcije
     this.ready = new Set([...this.ready].filter((id) => guestIds.has(id)));
+    this.clinked = new Set([...this.clinked].filter((id) => guestIds.has(id)));
+    for (const id of this.held.keys()) if (!guestIds.has(id)) this.held.delete(id);
     for (const connection of this.getConnections<ConnectionState>()) {
       const id = connection.state?.guestId;
       if (id && !guestIds.has(id)) {
@@ -145,7 +188,65 @@ export class ToastRoom extends Server<Env> {
     await this.ctx.storage.deleteAll();
     this.room = null;
     this.ready.clear();
+    this.resetRound();
     this.phase = "lobby";
+  }
+
+  // ---------- kucanje ----------
+
+  private async detectClinks(guestId: string, previous: GlassPosition | null, position: GlassPosition) {
+    const guests = this.room?.guests ?? [];
+    const now = Date.now();
+    let changed = false;
+
+    if (guests.length === 1) {
+      // Sam za stolom: kucni čašom u sredinu stola
+      if (distance(position, { x: 0, z: 0 }) < SOLO_CLINK_RADIUS) {
+        changed = this.registerClink(guestId, guestId, position, now) || changed;
+      } else {
+        this.touching.delete(pairKey(guestId, guestId));
+      }
+    }
+
+    guests.forEach((other, index) => {
+      if (other.id === guestId) return;
+      const otherPosition = this.held.get(other.id) ?? glassRestPosition(seatAngle(index, guests.length));
+      const key = pairKey(guestId, other.id);
+      const gap = previous ? distanceToSegment(otherPosition, previous, position) : distance(otherPosition, position);
+
+      if (gap < CLINK_DISTANCE) {
+        const at = { x: (position.x + otherPosition.x) / 2, z: (position.z + otherPosition.z) / 2 };
+        changed = this.registerClink(guestId, other.id, at, now) || changed;
+      } else if (distance(otherPosition, position) > CLINK_RELEASE_DISTANCE) {
+        this.touching.delete(key);
+      }
+    });
+
+    if (!changed) return;
+    this.updatePhase();
+    await this.persist();
+    this.broadcastSnapshot();
+  }
+
+  /** Vraća true ako se promijenio skup gostiju koji su se kucnuli */
+  private registerClink(a: string, b: string, at: GlassPosition, now: number) {
+    const key = pairKey(a, b);
+    if (this.touching.has(key)) return false;
+    this.touching.add(key);
+    if (now - (this.lastClinkAt.get(key) ?? 0) < CLINK_COOLDOWN_MS) return false;
+    this.lastClinkAt.set(key, now);
+
+    this.broadcastMessage({ type: "clink", a, b, at: { x: round(at.x), z: round(at.z) } });
+    const before = this.clinked.size;
+    this.clinked.add(a).add(b);
+    return this.clinked.size !== before;
+  }
+
+  private resetRound() {
+    this.clinked.clear();
+    this.held.clear();
+    this.touching.clear();
+    this.lastClinkAt.clear();
   }
 
   // ---------- pomoćne ----------
@@ -155,16 +256,28 @@ export class ToastRoom extends Server<Env> {
     if (guests.length === 0) {
       this.phase = "lobby";
       this.ready.clear();
+      this.resetRound();
       return;
     }
     // Čekamo i goste koji su trenutno offline — nazdravlja se tek kad su SVI spremni
     if (this.phase === "lobby" && guests.every((g) => this.ready.has(g.id))) {
       this.phase = "toasting";
+      this.resetRound();
+    }
+    // Svatko se kucnuo s barem jednim drugim -> pijenje i otkrivanje slike
+    if (this.phase === "toasting" && guests.every((g) => this.clinked.has(g.id))) {
+      this.phase = "revealed";
+      this.held.clear();
     }
   }
 
   private persist() {
-    return this.ctx.storage.put({ room: this.room, ready: [...this.ready], phase: this.phase });
+    return this.ctx.storage.put({
+      room: this.room,
+      ready: [...this.ready],
+      clinked: [...this.clinked],
+      phase: this.phase,
+    });
   }
 
   private onlineGuestIds(excludeConnectionId?: string) {
@@ -183,6 +296,7 @@ export class ToastRoom extends Server<Env> {
       room: this.room,
       online: [...this.onlineGuestIds(excludeConnectionId)],
       ready: [...this.ready],
+      clinked: [...this.clinked],
       phase: this.phase,
     };
     this.broadcastMessage(snapshot);
@@ -196,6 +310,8 @@ export class ToastRoom extends Server<Env> {
     connection.send(JSON.stringify(message));
   }
 }
+
+const pairKey = (a: string, b: string) => (a < b ? `${a}|${b}` : `${b}|${a}`);
 
 function sanitizePosition(position: unknown): GlassPosition | null {
   if (!position || typeof position !== "object") return null;

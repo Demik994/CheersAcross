@@ -6,7 +6,7 @@ import { Html } from "@react-three/drei";
 import { MathUtils, type Group } from "three";
 import type { PublicGuest } from "@/lib/rooms/types";
 import Character from "./Character";
-import { SEAT_RADIUS, angleDelta } from "./seating";
+import { SEAT_RADIUS, angleDelta } from "@/lib/party/geometry";
 import { TABLE_TOP_Y } from "./Table";
 
 type Props = {
@@ -15,14 +15,17 @@ type Props = {
   angle: number;
   isMe: boolean;
   offline: boolean;
-  ready: boolean;
+  /** Oznaka uz ime: 🥂 spreman (prije nazdravljanja), ✅ kucnuo se (tijekom) */
+  badge: { icon: string; label: string } | null;
+  /** HTML oznake se crtaju iznad canvasa — skrivamo ih dok je slika otkrivena */
+  showLabel: boolean;
 };
 
 /**
  * Jedno mjesto za stolom: čovječuljak i ime iznad glave.
  * Kad netko uđe ili izađe, mjesta se preraspodijele — lik glatko "klizi" oko stola.
  */
-export default function GuestSeat({ guest, angle, isMe, offline, ready }: Props) {
+export default function GuestSeat({ guest, angle, isMe, offline, badge, showLabel }: Props) {
   const pivotRef = useRef<Group>(null);
 
   useFrame((_, delta) => {
@@ -44,6 +47,7 @@ export default function GuestSeat({ guest, angle, isMe, offline, ready }: Props)
         rotation-y={Math.PI}
       />
 
+      {showLabel && (
       <Html
         position={[0, TABLE_TOP_Y + 0.92, SEAT_RADIUS + 0.05]}
         center
@@ -59,10 +63,11 @@ export default function GuestSeat({ guest, angle, isMe, offline, ready }: Props)
           {guest.isHost && <span aria-label="domaćin">👑</span>}
           {guest.name}
           {isMe && <span className="font-normal opacity-70">(ti)</span>}
-          {ready && <span aria-label="spreman">🥂</span>}
+          {badge && <span aria-label={badge.label}>{badge.icon}</span>}
           {offline && <span aria-label="nije spojen">💤</span>}
         </div>
       </Html>
+      )}
     </group>
   );
 }

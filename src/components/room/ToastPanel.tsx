@@ -6,13 +6,40 @@ import type { PublicGuest } from "@/lib/rooms/types";
 type Props = {
   guests: PublicGuest[];
   meId: string;
+  isHost: boolean;
   live: LiveInfo | null;
   connected: boolean;
+  /** Animacija pijenja je gotova (slika je otkrivena) */
+  celebrationShown: boolean;
   onReady: (ready: boolean) => void;
+  onNewRound: () => void;
 };
 
-/** "Nazdravi!" gumb i stanje spremnosti — nazdravljanje kreće tek kad su svi spremni */
-export default function ToastPanel({ guests, meId, live, connected, onReady }: Props) {
+function NameList({ guests, live }: { guests: PublicGuest[]; live: LiveInfo }) {
+  return (
+    <>
+      {guests.map((g, i) => (
+        <span key={g.id}>
+          {i > 0 && ", "}
+          {g.name}
+          {!live.online.has(g.id) && " 💤"}
+        </span>
+      ))}
+    </>
+  );
+}
+
+/** Donji panel kroz faze runde: "Nazdravi!" → kucanje → "Živjeli!" */
+export default function ToastPanel({
+  guests,
+  meId,
+  isHost,
+  live,
+  connected,
+  celebrationShown,
+  onReady,
+  onNewRound,
+}: Props) {
   if (!live || !connected) {
     return (
       <div className="flex h-12 items-center justify-center rounded-xl border border-white/10 bg-white/5 text-sm text-foreground/60">
@@ -21,10 +48,52 @@ export default function ToastPanel({ guests, meId, live, connected, onReady }: P
     );
   }
 
-  if (live.phase === "toasting") {
+  if (live.phase === "revealed") {
+    if (!celebrationShown) {
+      return (
+        <div className="flex h-12 items-center justify-center rounded-xl border border-amber-300/40 bg-amber-300/10 text-sm font-medium text-amber-100">
+          Glu glu glu… 🍷
+        </div>
+      );
+    }
     return (
-      <div className="rounded-xl border border-amber-300/40 bg-amber-300/10 px-4 py-3 text-center text-sm font-medium text-amber-100">
-        🥂 Svi su spremni! Povuci svoju čašu i kucni se s ostalima.
+      <div className="flex flex-col gap-2">
+        <div className="text-center text-2xl font-semibold text-amber-200">Živjeli! 🎉</div>
+        {isHost ? (
+          <button
+            type="button"
+            onClick={onNewRound}
+            className="h-12 w-full rounded-xl bg-amber-300 text-base font-semibold text-stone-900 active:bg-amber-200"
+          >
+            🥂 Nazdravi ponovo
+          </button>
+        ) : (
+          <p className="text-center text-xs text-foreground/55">Domaćin može pokrenuti novo nazdravljanje.</p>
+        )}
+      </div>
+    );
+  }
+
+  if (live.phase === "toasting") {
+    const clinkedCount = guests.filter((g) => live.clinked.has(g.id)).length;
+    const waiting = guests.filter((g) => !live.clinked.has(g.id));
+    const solo = guests.length === 1;
+    return (
+      <div className="rounded-xl border border-amber-300/40 bg-amber-300/10 px-4 py-2.5 text-center">
+        <p className="text-sm font-medium text-amber-100">
+          {solo ? "🥂 Povuci čašu u sredinu stola i nazdravi!" : "🥂 Povuci svoju čašu i kucni se s ostalima!"}
+        </p>
+        {!solo && (
+          <p className="mt-0.5 truncate text-xs text-amber-100/70">
+            Kucnulo se {clinkedCount}/{guests.length}
+            {waiting.length > 0 && (
+              <>
+                {" "}
+                · čekamo: <NameList guests={waiting} live={live} />
+              </>
+            )}
+          </p>
+        )}
       </div>
     );
   }
@@ -48,14 +117,7 @@ export default function ToastPanel({ guests, meId, live, connected, onReady }: P
       </button>
       {waitingFor.length > 0 && (
         <p className="truncate text-center text-xs text-foreground/55">
-          Čekamo:{" "}
-          {waitingFor.map((g, i) => (
-            <span key={g.id}>
-              {i > 0 && ", "}
-              {g.name}
-              {!live.online.has(g.id) && " 💤"}
-            </span>
-          ))}
+          Čekamo: <NameList guests={waitingFor} live={live} />
         </p>
       )}
     </div>

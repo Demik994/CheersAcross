@@ -9,7 +9,9 @@ import { useLiveRoom } from "@/hooks/useLiveRoom";
 import type { DrinkId } from "@/lib/drinks";
 import { roomApi } from "@/lib/roomApi";
 import type { GuestSession, PublicGuest } from "@/lib/rooms/types";
+import { DRINK_DURATION_MS, REVEAL_ALREADY_DONE } from "@/lib/party/geometry";
 import { clearSession } from "@/lib/session";
+import { playCelebration, unlockAudio } from "@/lib/sound";
 import GuestListSheet from "./GuestListSheet";
 import InviteButton from "./InviteButton";
 import { FullscreenMessage } from "./RoomClient";
@@ -18,11 +20,22 @@ import ToastPanel from "./ToastPanel";
 
 export default function RoomView({ code, session }: { code: string; session: GuestSession }) {
   const router = useRouter();
-  const { state, error, mutate, refresh, live, connected, glassTargets, setReady, moveGlass } = useLiveRoom(
-    code,
-    session,
-  );
-  const [revealRequested, setRevealRequested] = useState(false);
+  const {
+    state,
+    error,
+    mutate,
+    refresh,
+    live,
+    connected,
+    glassTargets,
+    clinkEvents,
+    revealStartedAt,
+    setReady,
+    moveGlass,
+    startNewRound,
+  } = useLiveRoom(code, session);
+  /** Za koju rundu (revealStartedAt) je animacija pijenja završila */
+  const [celebratedRound, setCelebratedRound] = useState<number | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
   const [guestListOpen, setGuestListOpen] = useState(false);
 
@@ -31,14 +44,32 @@ export default function RoomView({ code, session }: { code: string; session: Gue
     if (error?.status === 401) clearSession(code);
   }, [error, code]);
 
+  // Preglednici puštaju zvuk tek nakon interakcije — "otključaj" audio na prvi dodir
+  useEffect(() => {
+    window.addEventListener("pointerdown", unlockAudio);
+    return () => window.removeEventListener("pointerdown", unlockAudio);
+  }, []);
+
+  // Nakon animacije pijenja: otkrij sliku, konfeti i melodija
+  useEffect(() => {
+    if (revealStartedAt === null) return;
+    const remaining = revealStartedAt + DRINK_DURATION_MS - performance.now();
+    const timer = setTimeout(() => {
+      setCelebratedRound(revealStartedAt);
+      if (revealStartedAt !== REVEAL_ALREADY_DONE) playCelebration();
+    }, Math.max(0, remaining));
+    return () => clearTimeout(timer);
+  }, [revealStartedAt]);
+
   if (error?.status === 404) return <RoomGone />;
   if (!state) return <FullscreenMessage text={error ? error.message : "Ulazimo u sobu…"} />;
 
   const meId = session.guestId;
   const me = state.guests.find((g) => g.id === meId);
   const isHost = meId === state.hostId;
-  const photoRevealed = revealRequested && state.photoUrl !== null;
-  const inLobby = live?.phase !== "toasting";
+  const celebrationShown = revealStartedAt !== null && celebratedRound === revealStartedAt;
+  const photoRevealed = celebrationShown && state.photoUrl !== null;
+  const inLobby = live === null || live.phase === "lobby";
 
   async function changeDrink(drink: DrinkId) {
     setActionError(null);
@@ -87,7 +118,9 @@ export default function RoomView({ code, session }: { code: string; session: Gue
         meId={meId}
         live={live}
         glassTargets={glassTargets}
+        clinkEvents={clinkEvents}
         onMyGlassMove={moveGlass}
+        revealStartedAt={revealStartedAt}
         photoUrl={state.photoUrl}
         photoRevealed={photoRevealed}
       />
@@ -128,24 +161,22 @@ export default function RoomView({ code, session }: { code: string; session: Gue
             </p>
           )}
 
-          <ToastPanel guests={state.guests} meId={meId} live={live} connected={connected} onReady={setReady} />
+          <ToastPanel
+            guests={state.guests}
+            meId={meId}
+            isHost={isHost}
+            live={live}
+            connected={connected}
+            celebrationShown={celebrationShown}
+            onReady={setReady}
+            onNewRound={startNewRound}
+          />
 
           {inLobby && me && <DrinkPicker value={me.drink} onChange={(d) => void changeDrink(d)} />}
 
           {inLobby && isHost && (
-            <div className="flex items-start gap-2">
-              <PhotoUpload photoUrl={state.photoUrl} onUpload={uploadPhoto} onRemove={removePhoto} />
-              {state.photoUrl && (
-                // Privremeni gumb za testiranje — u Fazi 5 sliku otkriva kucanje čašama (za sve goste)
-                <button
-                  type="button"
-                  onClick={() => setRevealRequested((r) => !r)}
-                  className="h-11 shrink-0 rounded-xl border border-white/15 bg-white/5 px-3 text-sm font-medium active:bg-white/10"
-                >
-                  {photoRevealed ? "Natrag" : "✨ Test"}
-                </button>
-              )}
-            </div>
+            // Slika ostaje skrivena gostima dok se svi ne kucnu
+            <PhotoUpload photoUrl={state.photoUrl} onUpload={uploadPhoto} onRemove={removePhoto} />
           )}
         </div>
       </section>

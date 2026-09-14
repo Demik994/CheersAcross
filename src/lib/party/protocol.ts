@@ -4,7 +4,7 @@
  *
  * Podjela odgovornosti:
  * - Next.js + Redis: trajni podaci sobe (gosti, imena, pića, slika) — izvor istine
- * - PartyServer: "živo" stanje (tko je online, tko je spreman, pomicanje čaša)
+ * - PartyServer: "živo" stanje (tko je online, spremnost, čaše, kucanje, otkrivanje)
  */
 // Relativni import (ne "@/…") jer ovu datoteku bundla i Wrangler za Worker
 import type { RoomState } from "../rooms/types";
@@ -12,7 +12,12 @@ import type { RoomState } from "../rooms/types";
 /** Ime "partyja" u URL-u: /parties/toast-room/:kod */
 export const PARTY_NAME = "toast-room";
 
-export type ToastPhase = "lobby" | "toasting";
+/**
+ * lobby     — biranje pića, gosti klikću "Nazdravi!"
+ * toasting  — svi su spremni; gosti vuku čaše i kucaju se
+ * revealed  — svi su se kucnuli; pijenje, pa otkrivanje slike
+ */
+export type ToastPhase = "lobby" | "toasting" | "revealed";
 
 /** Pozicija čaše u koordinatama stola (x, z), neovisno o tome odakle gost gleda */
 export type GlassPosition = { x: number; z: number };
@@ -24,6 +29,8 @@ export type LiveSnapshot = {
   room: RoomState | null;
   online: string[];
   ready: string[];
+  /** Gosti koji su se u ovoj rundi kucnuli barem s jednim drugim */
+  clinked: string[];
   phase: ToastPhase;
 };
 
@@ -34,15 +41,25 @@ export type GlassMoved = {
   position: GlassPosition | null;
 };
 
+/** Dvije čaše su se kucnule (a === b kad je gost sam i kucne u sredinu stola) */
+export type Clink = {
+  type: "clink";
+  a: string;
+  b: string;
+  at: GlassPosition;
+};
+
 export type Kicked = { type: "kicked" };
 
-export type ServerMessage = LiveSnapshot | GlassMoved | Kicked;
+export type ServerMessage = LiveSnapshot | GlassMoved | Clink | Kicked;
 
 // ---------- preglednik -> server ----------
 
 export type ClientMessage =
   | { type: "ready"; ready: boolean }
-  | { type: "glass"; position: GlassPosition | null };
+  | { type: "glass"; position: GlassPosition | null }
+  /** Samo domaćin: nova runda nazdravljanja */
+  | { type: "reset" };
 
 // ---------- Next.js -> server (HTTP, potpisano tajnom) ----------
 

@@ -120,6 +120,8 @@ export type GlassGeometryData = {
   liquid: Vector2[];
   surfaceY: number;
   surfaceRadius: number;
+  /** Dno posude — tekućina se "prazni" skaliranjem prema ovoj visini */
+  bottomY: number;
   rim: Vector2;
   scale: number;
 };
@@ -139,6 +141,7 @@ export function getGlassGeometry(type: GlassType, fill: number): GlassGeometryDa
     liquid: liquid.points,
     surfaceY: liquid.surfaceY,
     surfaceRadius: liquid.surfaceRadius,
+    bottomY: inner[0].y,
     rim: inner[inner.length - 1],
     scale: def.scale,
   };

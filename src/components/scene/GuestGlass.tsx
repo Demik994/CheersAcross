@@ -7,7 +7,7 @@ import type { GlassTargets } from "@/hooks/useLiveRoom";
 import { MAX_GLASS_RADIUS, type GlassPosition } from "@/lib/party/protocol";
 import type { PublicGuest } from "@/lib/rooms/types";
 import Glass from "./Glass";
-import { glassRestPosition } from "./seating";
+import { DRINK_DURATION_MS, SEAT_RADIUS, glassRestPosition } from "@/lib/party/geometry";
 import { TABLE_TOP_Y } from "./Table";
 
 const GLASS_SCALE = 0.72;
@@ -27,20 +27,34 @@ type Props = {
   draggable: boolean;
   glassTargets: RefObject<GlassTargets>;
   onMove: (position: GlassPosition | null) => void;
+  /** performance.now() početka pijenja; null = runda još nije završila */
+  revealStartedAt: number | null;
+};
+
+/** Gdje je čaša dok lik pije (ispred lica) */
+const MOUTH_RADIUS = SEAT_RADIUS - 0.55;
+const MOUTH_HEIGHT = 0.3;
+const DRINK_TILT = 1.15;
+
+const smoothstep = (edge0: number, edge1: number, x: number) => {
+  const t = MathUtils.clamp((x - edge0) / (edge1 - edge0), 0, 1);
+  return t * t * (3 - 2 * t);
 };
 
 /**
  * Čaša jednog gosta u koordinatama stola. Tuđe čaše prate pozicije s real-time
  * servera (glatko interpolirano), a svoju gost vuče mišem ili prstom.
  * Kad se pusti, čaša se vrati na mjesto ispred gosta.
+ * Kad se svi kucnu, lik podigne čašu do usta, nagne je i ispije.
  */
-export default function GuestGlass({ guest, angle, isMe, draggable, glassTargets, onMove }: Props) {
+export default function GuestGlass({ guest, angle, isMe, draggable, glassTargets, onMove, revealStartedAt }: Props) {
   const groupRef = useRef<Group>(null);
   const hintRef = useRef<Mesh>(null);
   const dragging = useRef(false);
   const lastSent = useRef(0);
   /** Razmak između točke hvatanja i čaše, da čaša ne "skoči" pod prst */
   const grabOffset = useRef({ x: 0, z: 0 });
+  const level = useRef(1);
   const get = useThree((state) => state.get);
 
   // Ako vučenje prestane biti dopušteno usred poteza, pusti čašu
@@ -54,8 +68,32 @@ export default function GuestGlass({ guest, angle, isMe, draggable, glassTargets
   useFrame(({ clock }, delta) => {
     const g = groupRef.current;
     if (!g) return;
+    g.rotation.order = "YXZ"; // nagib (X) u smjeru lika (Y = kut mjesta)
+    g.rotation.y = angle;
 
-    if (!dragging.current) {
+    const progress = revealStartedAt === null ? null : (performance.now() - revealStartedAt) / DRINK_DURATION_MS;
+
+    if (progress !== null && progress < 1) {
+      // 0–0.3 podizanje do usta · 0.3–0.72 naginjanje i pijenje · 0.72–1 spuštanje
+      const lift = smoothstep(0, 0.3, progress) * (1 - smoothstep(0.72, 1, progress));
+      const tilt = smoothstep(0.3, 0.48, progress) * (1 - smoothstep(0.66, 0.84, progress));
+      const rest = glassRestPosition(angle);
+      const mouthX = Math.sin(angle) * MOUTH_RADIUS;
+      const mouthZ = Math.cos(angle) * MOUTH_RADIUS;
+      g.position.set(
+        MathUtils.lerp(rest.x, mouthX, lift),
+        TABLE_TOP_Y + lift * MOUTH_HEIGHT,
+        MathUtils.lerp(rest.z, mouthZ, lift),
+      );
+      g.rotation.x = tilt * DRINK_TILT;
+      level.current = 1 - smoothstep(0.36, 0.7, progress);
+    } else {
+      // Nakon pijenja čaša ostaje prazna; nova runda je polako napuni
+      level.current = MathUtils.damp(level.current, revealStartedAt === null ? 1 : 0, 2.5, delta);
+      g.rotation.x = MathUtils.damp(g.rotation.x, 0, 8, delta);
+    }
+
+    if (!dragging.current && (progress === null || progress >= 1)) {
       const remote = isMe ? null : glassTargets.current.get(guest.id) ?? null;
       const target = remote ?? glassRestPosition(angle);
       const lambda = remote ? 14 : 6;
@@ -133,7 +171,7 @@ export default function GuestGlass({ guest, angle, isMe, draggable, glassTargets
 
   return (
     <group ref={groupRef} position={[rest.x, TABLE_TOP_Y, rest.z]}>
-      <Glass key={guest.drink} drink={guest.drink} scale={GLASS_SCALE} />
+      <Glass key={guest.drink} drink={guest.drink} scale={GLASS_SCALE} levelRef={level} />
 
       {isMe && (
         <>

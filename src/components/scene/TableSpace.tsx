@@ -3,7 +3,7 @@
 import { forwardRef, useImperativeHandle, useRef, type ReactNode } from "react";
 import { useFrame } from "@react-three/fiber";
 import { MathUtils, type Group } from "three";
-import { angleDelta } from "./seating";
+import { angleDelta } from "@/lib/party/geometry";
 
 /**
  * Grupa u kojoj žive gosti i čaše (koordinate stola). Zarotirana je tako da je
