@@ -32,6 +32,7 @@ yarn-error.log*
 
 # env files (can opt-in for committing if needed)
 .env*
+!.env.example
 
 # vercel
 .vercel
@@ -39,3 +40,9 @@ yarn-error.log*
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+# lokalni upload slika (razvoj bez Vercel Bloba)
+/.local-uploads
+
+# osobne Claude Code postavke
+.claude/settings.local.json
