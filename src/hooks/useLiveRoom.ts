@@ -17,7 +17,7 @@ import { playClink } from "@/lib/sound";
 import { useRoomState } from "./useRoomState";
 
 /** Dok real-time veza radi, REST je samo sigurnosna mreža */
-const SAFETY_POLL_MS = 30_000;
+const SAFETY_POLL_MS = 60_000;
 const TICKET_RETRY_MS = 5_000;
 
 export type LiveInfo = {

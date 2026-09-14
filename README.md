@@ -46,3 +46,11 @@ party/              Cloudflare Worker s PartyServerom
 ```
 
 Varijable okruženja za produkciju opisane su u [.env.example](.env.example).
+
+## Deploy
+
+1. **Real-time server (Cloudflare):** `npx wrangler login`, zatim `npm run party:deploy`
+   i `npx wrangler secret put PARTY_SECRET --config party/wrangler.jsonc`.
+2. **Vercel:** u projektu dodaj *Storage → Upstash Redis* i *Storage → Blob (public)*,
+   te varijable `PARTY_SECRET` (ista kao u Cloudflareu) i `PARTY_URL` (adresa Workera).
+3. Redeploy na Vercelu i provjeri `https://<tvoja-domena>/api/health` — sve mora biti `true`.

@@ -19,4 +19,7 @@ body {
   font-family: var(--font-geist-sans), Arial, Helvetica, sans-serif;
   /* Sprječava "bounce" scroll na iOS-u dok korisnik vrti 3D scenu */
   overscroll-behavior: none;
+  /* Bez zumiranja dvostrukim dodirom (i kašnjenja klika) na mobitelu */
+  touch-action: manipulation;
+  -webkit-tap-highlight-color: transparent;
 }
