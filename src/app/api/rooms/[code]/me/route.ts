@@ -1,3 +1,4 @@
+import { publishRoomState } from "@/lib/party/server";
 import { handle, parseCode, readJson, readSession } from "@/lib/rooms/http";
 import { leaveRoom, setDrink } from "@/lib/rooms/service";
 
@@ -7,6 +8,7 @@ export async function PATCH(request: Request, ctx: RouteContext<"/api/rooms/[cod
     const code = parseCode((await ctx.params).code);
     const body = await readJson(request);
     await setDrink(code, readSession(request), body.drink);
+    await publishRoomState(code);
     return new Response(null, { status: 204 });
   });
 }
@@ -16,6 +18,7 @@ export async function DELETE(request: Request, ctx: RouteContext<"/api/rooms/[co
   return handle(async () => {
     const code = parseCode((await ctx.params).code);
     await leaveRoom(code, readSession(request));
+    await publishRoomState(code);
     return new Response(null, { status: 204 });
   });
 }

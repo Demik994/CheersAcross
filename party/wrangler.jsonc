@@ -1,0 +1,29 @@
+{
+  "$schema": "../node_modules/wrangler/config-schema.json",
+  // Real-time server za CheersAcross (PartyServer na Cloudflare Workersima)
+  "name": "cheers-across-party",
+  "main": "src/index.ts",
+  "compatibility_date": "2026-09-01",
+  "durable_objects": {
+    "bindings": [
+      {
+        // URL: /parties/toast-room/:kodSobe (ime bindinga u kebab-caseu)
+        "name": "ToastRoom",
+        "class_name": "ToastRoom"
+      }
+    ]
+  },
+  "migrations": [
+    {
+      "tag": "v1",
+      // SQLite Durable Objects su dostupni na besplatnom Cloudflare planu
+      "new_sqlite_classes": ["ToastRoom"]
+    }
+  ],
+  "dev": {
+    "port": 1999
+  },
+  "observability": {
+    "enabled": true
+  }
+}

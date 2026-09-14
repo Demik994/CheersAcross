@@ -1,0 +1,4 @@
+# Kopiraj u party/.dev.vars za lokalni razvoj.
+# Mora biti ista vrijednost kao PARTY_SECRET u Next.js-u (u razvoju je to zadana vrijednost ispod).
+# U produkciji postavi pravu tajnu: npx wrangler secret put PARTY_SECRET --config party/wrangler.jsonc
+PARTY_SECRET=cheersacross-dev-secret

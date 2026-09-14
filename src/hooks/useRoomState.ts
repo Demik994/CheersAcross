@@ -4,13 +4,15 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { ApiError, roomApi } from "@/lib/roomApi";
 import type { GuestSession, RoomState } from "@/lib/rooms/types";
 
-// Privremeno (Faza 3) — u Fazi 4 polling zamjenjuje PartyKit
-const POLL_INTERVAL_MS = 3000;
-
-export function useRoomState(code: string, session: GuestSession) {
-  const [data, setData] = useState<{ state: RoomState; meId: string } | null>(null);
+/**
+ * Trajno stanje sobe (gosti, pića, slika) preko REST API-ja.
+ * Promjene uživo stižu preko real-time servera (`apply`); REST je rezerva
+ * za početno učitavanje, ponovno spajanje i rijetko sigurnosno osvježavanje.
+ */
+export function useRoomState(code: string, session: GuestSession, pollIntervalMs: number) {
+  const [state, setState] = useState<RoomState | null>(null);
   const [error, setError] = useState<ApiError | null>(null);
-  // Svaka promjena (npr. odabir pića) povećava verziju; odgovori pollanja
+  // Svaka lokalna promjena (npr. odabir pića) povećava verziju; REST odgovori
   // koji su krenuli prije promjene se odbacuju da UI ne "trepne" natrag.
   const version = useRef(0);
 
@@ -19,7 +21,7 @@ export function useRoomState(code: string, session: GuestSession) {
     try {
       const result = await roomApi.state(code, session);
       if (startedAt !== version.current) return;
-      setData(result);
+      setState(result.state);
       setError(null);
     } catch (err) {
       if (startedAt !== version.current) return;
@@ -33,7 +35,7 @@ export function useRoomState(code: string, session: GuestSession) {
 
     const tick = async () => {
       if (document.visibilityState === "visible") await load();
-      if (!cancelled) timer = setTimeout(tick, POLL_INTERVAL_MS);
+      if (!cancelled) timer = setTimeout(tick, pollIntervalMs);
     };
     const onVisible = () => {
       if (document.visibilityState === "visible") void load();
@@ -46,19 +48,26 @@ export function useRoomState(code: string, session: GuestSession) {
       clearTimeout(timer);
       document.removeEventListener("visibilitychange", onVisible);
     };
-  }, [load]);
+  }, [load, pollIntervalMs]);
 
   /** Lokalna promjena stanja odmah, prije nego server potvrdi */
   const mutate = useCallback((update: (state: RoomState) => RoomState) => {
     version.current += 1;
-    setData((current) => (current ? { ...current, state: update(current.state) } : current));
+    setState((current) => (current ? update(current) : current));
   }, []);
 
-  /** Nakon što server potvrdi promjenu: odbaci pollanja u letu i povuci svježe stanje */
-  const settle = useCallback(() => {
+  /** Stanje koje je gurnuo real-time server */
+  const apply = useCallback((next: RoomState) => {
+    version.current += 1;
+    setState(next);
+    setError(null);
+  }, []);
+
+  /** Odbaci REST zahtjeve u letu i povuci svježe stanje */
+  const refresh = useCallback(() => {
     version.current += 1;
     return load();
   }, [load]);
 
-  return { data, error, mutate, settle };
+  return { state, error, mutate, apply, refresh };
 }

@@ -12,6 +12,10 @@ const eslintConfig = defineConfig([
     "out/**",
     "build/**",
     "next-env.d.ts",
+    // Generirani Cloudflare tipovi i lokalno Wrangler stanje
+    "party/worker-configuration.d.ts",
+    ".wrangler/**",
+    "party/.wrangler/**",
   ]),
 ]);
 

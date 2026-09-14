@@ -74,4 +74,10 @@ export const roomApi = {
 
   removePhoto: (code: string, session: GuestSession) =>
     request<void>(`${roomPath(code)}/photo`, { method: "DELETE", session }),
+
+  ticket: (code: string, session: GuestSession) =>
+    request<{ ticket: string; host: string }>(`${roomPath(code)}/ticket`, { session }),
+
+  kick: (code: string, session: GuestSession, guestId: string) =>
+    request<void>(`${roomPath(code)}/guests/${encodeURIComponent(guestId)}`, { method: "DELETE", session }),
 };

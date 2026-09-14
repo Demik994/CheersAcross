@@ -5,33 +5,40 @@ import { useEffect, useState } from "react";
 import SceneLoader from "@/components/scene/SceneLoader";
 import DrinkPicker from "@/components/ui/DrinkPicker";
 import PhotoUpload from "@/components/ui/PhotoUpload";
-import { useRoomState } from "@/hooks/useRoomState";
+import { useLiveRoom } from "@/hooks/useLiveRoom";
 import type { DrinkId } from "@/lib/drinks";
 import { roomApi } from "@/lib/roomApi";
-import type { GuestSession } from "@/lib/rooms/types";
+import type { GuestSession, PublicGuest } from "@/lib/rooms/types";
 import { clearSession } from "@/lib/session";
+import GuestListSheet from "./GuestListSheet";
 import InviteButton from "./InviteButton";
 import { FullscreenMessage } from "./RoomClient";
 import RoomGone from "./RoomGone";
+import ToastPanel from "./ToastPanel";
 
 export default function RoomView({ code, session }: { code: string; session: GuestSession }) {
   const router = useRouter();
-  const { data, error, mutate, settle } = useRoomState(code, session);
+  const { state, error, mutate, refresh, live, connected, glassTargets, setReady, moveGlass } = useLiveRoom(
+    code,
+    session,
+  );
   const [revealRequested, setRevealRequested] = useState(false);
   const [actionError, setActionError] = useState<string | null>(null);
+  const [guestListOpen, setGuestListOpen] = useState(false);
 
-  // Token više ne vrijedi (npr. gost je izašao na drugom tabu) — natrag na formu za ulazak
+  // Token više ne vrijedi (gost je uklonjen ili je izašao na drugom tabu) — natrag na formu za ulazak
   useEffect(() => {
     if (error?.status === 401) clearSession(code);
   }, [error, code]);
 
   if (error?.status === 404) return <RoomGone />;
-  if (!data) return <FullscreenMessage text={error ? error.message : "Ulazimo u sobu…"} />;
+  if (!state) return <FullscreenMessage text={error ? error.message : "Ulazimo u sobu…"} />;
 
-  const { state, meId } = data;
+  const meId = session.guestId;
   const me = state.guests.find((g) => g.id === meId);
   const isHost = meId === state.hostId;
   const photoRevealed = revealRequested && state.photoUrl !== null;
+  const inLobby = live?.phase !== "toasting";
 
   async function changeDrink(drink: DrinkId) {
     setActionError(null);
@@ -40,26 +47,28 @@ export default function RoomView({ code, session }: { code: string; session: Gue
       await roomApi.setDrink(code, session, drink);
     } catch (err) {
       setActionError(err instanceof Error ? err.message : "Promjena pića nije uspjela.");
-    } finally {
-      void settle();
+      void refresh();
     }
   }
 
   async function uploadPhoto(photo: Blob) {
     const { photoUrl } = await roomApi.uploadPhoto(code, session, photo);
     mutate((s) => ({ ...s, photoUrl }));
-    await settle();
   }
 
   async function removePhoto() {
     await roomApi.removePhoto(code, session);
     mutate((s) => ({ ...s, photoUrl: null }));
-    await settle();
+  }
+
+  async function kick(guest: PublicGuest) {
+    await roomApi.kick(code, session, guest.id);
+    mutate((s) => ({ ...s, guests: s.guests.filter((g) => g.id !== guest.id) }));
   }
 
   async function leave() {
     const message = isHost
-      ? "Ti si domaćin. Ako izađeš, nitko više neće moći mijenjati sliku slavlja. Izaći iz sobe?"
+      ? "Ti si domaćin. Ako izađeš, nitko više neće moći mijenjati sliku ni uklanjati goste. Izaći iz sobe?"
       : "Izaći iz sobe?";
     if (!window.confirm(message)) return;
     try {
@@ -73,15 +82,30 @@ export default function RoomView({ code, session }: { code: string; session: Gue
 
   return (
     <main className="relative h-dvh w-full overflow-hidden">
-      <SceneLoader guests={state.guests} meId={meId} photoUrl={state.photoUrl} photoRevealed={photoRevealed} />
+      <SceneLoader
+        guests={state.guests}
+        meId={meId}
+        live={live}
+        glassTargets={glassTargets}
+        onMyGlassMove={moveGlass}
+        photoUrl={state.photoUrl}
+        photoRevealed={photoRevealed}
+      />
 
       <header className="pointer-events-none absolute inset-x-0 top-0 z-10 flex items-start justify-between gap-2 px-3 pt-[max(0.75rem,env(safe-area-inset-top))]">
-        <div className="pointer-events-auto flex h-10 items-center gap-2 rounded-full bg-stone-900/75 px-3 text-sm shadow-lg backdrop-blur">
-          <span aria-hidden>🥂</span>
+        <button
+          type="button"
+          onClick={() => setGuestListOpen(true)}
+          className="pointer-events-auto flex h-10 items-center gap-2 rounded-full bg-stone-900/75 px-3 text-sm shadow-lg backdrop-blur active:bg-stone-800"
+        >
+          <span
+            className={`size-2 rounded-full ${connected ? "bg-emerald-400" : "animate-pulse bg-amber-400"}`}
+            aria-label={connected ? "spojeno" : "spajanje"}
+          />
           <span className="font-mono font-semibold tracking-widest text-amber-200">{code}</span>
           <span className="text-foreground/40">·</span>
           <span aria-label={`${state.guests.length} gostiju`}>👥 {state.guests.length}</span>
-        </div>
+        </button>
         <div className="flex items-center gap-2">
           <InviteButton code={code} />
           <button
@@ -95,36 +119,47 @@ export default function RoomView({ code, session }: { code: string; session: Gue
         </div>
       </header>
 
-      <section className="absolute inset-x-0 bottom-0 z-10 bg-gradient-to-t from-background via-background/90 to-transparent px-4 pt-10 pb-[max(1rem,env(safe-area-inset-bottom))]">
-        <div className="mx-auto flex max-w-xl flex-col gap-3">
-          {error && error.status !== 401 && (
-            <p className="text-center text-xs text-amber-200/80">Veza je nestabilna — pokušavamo ponovno…</p>
-          )}
+      <section className="pointer-events-none absolute inset-x-0 bottom-0 z-10 bg-gradient-to-t from-background via-background/90 to-transparent px-4 pt-10 pb-[max(1rem,env(safe-area-inset-bottom))]">
+        {/* pointer-events samo na kontrolama, da se čaša može vući i iza gradijenta */}
+        <div className="pointer-events-auto mx-auto flex max-w-xl flex-col gap-3">
           {actionError && (
             <p role="alert" className="text-center text-xs text-red-300">
               {actionError}
             </p>
           )}
 
-          {me && <DrinkPicker value={me.drink} onChange={(d) => void changeDrink(d)} />}
+          <ToastPanel guests={state.guests} meId={meId} live={live} connected={connected} onReady={setReady} />
 
-          {isHost && (
+          {inLobby && me && <DrinkPicker value={me.drink} onChange={(d) => void changeDrink(d)} />}
+
+          {inLobby && isHost && (
             <div className="flex items-start gap-2">
               <PhotoUpload photoUrl={state.photoUrl} onUpload={uploadPhoto} onRemove={removePhoto} />
               {state.photoUrl && (
-                // Privremeni gumb za testiranje — u Fazi 5 otkrivanje pokreće nazdravljanje (za sve goste)
+                // Privremeni gumb za testiranje — u Fazi 5 sliku otkriva kucanje čašama (za sve goste)
                 <button
                   type="button"
                   onClick={() => setRevealRequested((r) => !r)}
-                  className="h-11 shrink-0 rounded-xl bg-amber-300 px-3 text-sm font-semibold text-stone-900 active:bg-amber-200"
+                  className="h-11 shrink-0 rounded-xl border border-white/15 bg-white/5 px-3 text-sm font-medium active:bg-white/10"
                 >
-                  {photoRevealed ? "Natrag na stol" : "✨ Otkrij"}
+                  {photoRevealed ? "Natrag" : "✨ Test"}
                 </button>
               )}
             </div>
           )}
         </div>
       </section>
+
+      {guestListOpen && (
+        <GuestListSheet
+          guests={state.guests}
+          meId={meId}
+          isHost={isHost}
+          live={live}
+          onKick={kick}
+          onClose={() => setGuestListOpen(false)}
+        />
+      )}
     </main>
   );
 }

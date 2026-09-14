@@ -2,7 +2,7 @@
 
 import { useRef } from "react";
 import { useFrame, type ThreeElements } from "@react-three/fiber";
-import type { Group } from "three";
+import { MathUtils, type Group } from "three";
 
 const SKIN_TONES = ["#f1c6a5", "#e0ac86", "#c68863", "#8d5a3b", "#f6d7c3"];
 const HAIR_COLORS = ["#2b1b12", "#5a3a22", "#a8652a", "#d9b36c", "#1e1e24", "#7a2e1f"];
@@ -16,6 +16,8 @@ function hashString(value: string) {
 type CharacterProps = ThreeElements["group"] & {
   seed: string;
   color: string;
+  /** Gost nije spojen — lik "drijema" pognute glave */
+  sleepy?: boolean;
 };
 
 /**
@@ -23,7 +25,7 @@ type CharacterProps = ThreeElements["group"] & {
  * Lokalna +Z os je smjer lica — roditelj ga okreće prema sredini stola.
  * Visine su u odnosu na ploču stola (y = 0); pod je na y = -1.1.
  */
-export default function Character({ seed, color, ...groupProps }: CharacterProps) {
+export default function Character({ seed, color, sleepy = false, ...groupProps }: CharacterProps) {
   const hash = hashString(seed);
   const skin = SKIN_TONES[hash % SKIN_TONES.length];
   const hair = HAIR_COLORS[(hash >> 3) % HAIR_COLORS.length];
@@ -32,12 +34,14 @@ export default function Character({ seed, color, ...groupProps }: CharacterProps
   const upperRef = useRef<Group>(null);
 
   // Lagano "disanje" i njihanje glave da lik ne izgleda kao kip
-  useFrame(({ clock }) => {
+  useFrame(({ clock }, delta) => {
     const g = upperRef.current;
     if (!g) return;
     const t = clock.getElapsedTime() + phase;
-    g.position.y = Math.sin(t * 1.6) * 0.012;
-    g.rotation.z = Math.sin(t * 0.7) * 0.04;
+    const breathing = sleepy ? 0.6 : 1.6;
+    g.position.y = Math.sin(t * breathing) * 0.012;
+    g.rotation.z = sleepy ? 0 : Math.sin(t * 0.7) * 0.04;
+    g.rotation.x = MathUtils.damp(g.rotation.x, sleepy ? 0.35 : 0, 3, delta);
   });
 
   return (

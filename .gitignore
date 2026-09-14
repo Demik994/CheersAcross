@@ -46,3 +46,8 @@ next-env.d.ts
 
 # osobne Claude Code postavke
 .claude/settings.local.json
+
+# Cloudflare Wrangler (lokalno stanje i tajne)
+.wrangler/
+party/.wrangler/
+party/.dev.vars

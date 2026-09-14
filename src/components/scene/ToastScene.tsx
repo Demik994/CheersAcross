@@ -1,24 +1,42 @@
 "use client";
 
+import type { RefObject } from "react";
 import { Canvas } from "@react-three/fiber";
 import { ContactShadows, Environment, Lightformer, OrbitControls } from "@react-three/drei";
+import type { GlassTargets, LiveInfo } from "@/hooks/useLiveRoom";
+import type { GlassPosition } from "@/lib/party/protocol";
 import type { PublicGuest } from "@/lib/rooms/types";
 import CameraRig, { DEFAULT_TARGET } from "./CameraRig";
 import CelebrationPhoto from "./CelebrationPhoto";
+import GuestGlass from "./GuestGlass";
 import GuestSeat from "./GuestSeat";
 import ResponsiveCamera from "./ResponsiveCamera";
+import { seatAngle } from "./seating";
 import Table, { TABLE_TOP_Y } from "./Table";
+import TableSpace from "./TableSpace";
 
 export type ToastSceneProps = {
   guests: PublicGuest[];
   meId: string;
+  /** null dok real-time veza još nije javila stanje — tada sve prikazujemo kao online */
+  live: LiveInfo | null;
+  glassTargets: RefObject<GlassTargets>;
+  onMyGlassMove: (position: GlassPosition | null) => void;
   photoUrl: string | null;
   photoRevealed: boolean;
 };
 
-export default function ToastScene({ guests, meId, photoUrl, photoRevealed }: ToastSceneProps) {
-  // Svaki gost vidi sebe na mjestu najbližem kameri, ostali su raspoređeni u krug
+export default function ToastScene({
+  guests,
+  meId,
+  live,
+  glassTargets,
+  onMyGlassMove,
+  photoUrl,
+  photoRevealed,
+}: ToastSceneProps) {
   const myIndex = Math.max(0, guests.findIndex((g) => g.id === meId));
+  const toasting = live?.phase === "toasting";
 
   return (
     <Canvas
@@ -33,13 +51,7 @@ export default function ToastScene({ guests, meId, photoUrl, photoRevealed }: To
       <ResponsiveCamera />
 
       <ambientLight intensity={0.45} />
-      <spotLight
-        position={[2.5, 6, 2]}
-        angle={0.7}
-        penumbra={0.8}
-        intensity={45}
-        color="#ffd9a8"
-      />
+      <spotLight position={[2.5, 6, 2]} angle={0.7} penumbra={0.8} intensity={45} color="#ffd9a8" />
       <pointLight position={[-3, 2, -2]} intensity={8} color="#8fb4ff" />
 
       {/* Lokalni environment (bez preuzimanja HDR-a) — daje refleksije na staklu */}
@@ -51,14 +63,32 @@ export default function ToastScene({ guests, meId, photoUrl, photoRevealed }: To
 
       <Table />
 
-      {guests.map((guest, i) => (
-        <GuestSeat
-          key={guest.id}
-          guest={guest}
-          isMe={guest.id === meId}
-          angle={((i - myIndex) / guests.length) * Math.PI * 2}
-        />
-      ))}
+      {/* Svi gosti su u koordinatama stola; stol je zarotiran tako da sam "ja" najbliže kameri */}
+      <TableSpace rotation={-seatAngle(myIndex, guests.length)}>
+        {guests.map((guest, i) => {
+          const angle = seatAngle(i, guests.length);
+          const isMe = guest.id === meId;
+          return (
+            <group key={guest.id}>
+              <GuestSeat
+                guest={guest}
+                angle={angle}
+                isMe={isMe}
+                offline={live !== null && !live.online.has(guest.id)}
+                ready={live?.ready.has(guest.id) ?? false}
+              />
+              <GuestGlass
+                guest={guest}
+                angle={angle}
+                isMe={isMe}
+                draggable={isMe && toasting && !photoRevealed}
+                glassTargets={glassTargets}
+                onMove={onMyGlassMove}
+              />
+            </group>
+          );
+        })}
+      </TableSpace>
 
       <CelebrationPhoto url={photoUrl} revealed={photoRevealed} />
 

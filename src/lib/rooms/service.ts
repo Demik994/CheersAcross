@@ -182,10 +182,21 @@ export async function leaveRoom(code: string, session: GuestSession | null) {
   await getRoomStore().removeGuest(code, me.id);
 }
 
-export async function requireHost(code: string, session: GuestSession | null) {
+export async function kickGuest(code: string, session: GuestSession | null, guestId: string) {
+  const { guests, me } = await requireHost(code, session, "Samo domaćin može uklanjati goste.");
+  if (guestId === me.id) throw new RoomError(400, "Domaćin ne može ukloniti sebe.");
+  if (!guests.some((g) => g.id === guestId)) throw new RoomError(404, "Gost više nije u sobi.");
+  await getRoomStore().removeGuest(code, guestId);
+}
+
+export async function requireHost(
+  code: string,
+  session: GuestSession | null,
+  message = "Samo domaćin može mijenjati sliku.",
+) {
   const auth = await authenticate(code, session);
   if (auth.me.id !== auth.room.hostId) {
-    throw new RoomError(403, "Samo domaćin može mijenjati sliku.");
+    throw new RoomError(403, message);
   }
   return auth;
 }
