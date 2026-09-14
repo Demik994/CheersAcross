@@ -1,4 +1,5 @@
 import "server-only";
+import { envNames, readEnv } from "@/lib/env";
 import { getRoomStore } from "@/lib/rooms/store";
 import { toRoomState } from "@/lib/rooms/service";
 import { PARTY_NAME, type RoomUpdate } from "./protocol";
@@ -9,14 +10,14 @@ const DEV_PORT = 1999;
 const isProduction = process.env.NODE_ENV === "production";
 
 function partySecret(): string {
-  const secret = process.env.PARTY_SECRET ?? (isProduction ? undefined : DEV_SECRET);
+  const secret = readEnv(...envNames.partySecret) ?? (isProduction ? undefined : DEV_SECRET);
   if (!secret) throw new Error("PARTY_SECRET nije postavljen.");
   return secret;
 }
 
 /** Adresa real-time servera s kojom Next.js razgovara (server -> server) */
 function partyUrl(): string {
-  const url = process.env.PARTY_URL ?? (isProduction ? undefined : `http://127.0.0.1:${DEV_PORT}`);
+  const url = readEnv(...envNames.partyUrl) ?? (isProduction ? undefined : `http://127.0.0.1:${DEV_PORT}`);
   if (!url) throw new Error("PARTY_URL nije postavljen.");
   return url.replace(/\/$/, "");
 }
@@ -26,7 +27,8 @@ function partyUrl(): string {
  * pa radi i kad se app otvori s mobitela na lokalnoj mreži (192.168.x.x:3000).
  */
 export function partyPublicHost(request: Request): string {
-  if (process.env.PARTY_PUBLIC_HOST) return process.env.PARTY_PUBLIC_HOST;
+  const publicHost = readEnv(...envNames.partyPublicHost);
+  if (publicHost) return publicHost;
   if (isProduction) return new URL(partyUrl()).host;
   const hostname = new URL(request.url).hostname;
   return `${hostname}:${DEV_PORT}`;

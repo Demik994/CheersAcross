@@ -3,6 +3,7 @@ import { randomUUID } from "node:crypto";
 import { mkdir, unlink, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { del, put } from "@vercel/blob";
+import { blobToken } from "@/lib/env";
 import { RoomError } from "@/lib/rooms/service";
 
 /**
@@ -37,9 +38,10 @@ export async function storePhoto(file: FormDataEntryValue | null, roomCode: stri
 
   const name = `${randomUUID()}.${extension}`;
 
-  if (process.env.BLOB_READ_WRITE_TOKEN) {
+  const token = blobToken();
+  if (token) {
     try {
-      const blob = await put(`rooms/${roomCode}/${name}`, file, { access: "public", contentType: file.type });
+      const blob = await put(`rooms/${roomCode}/${name}`, file, { access: "public", contentType: file.type, token });
       return blob.url;
     } catch (err) {
       console.error("Vercel Blob upload nije uspio", err);
@@ -63,8 +65,9 @@ export async function deletePhoto(url: string | null) {
     if (url.startsWith(LOCAL_URL_PREFIX)) {
       const name = url.slice(LOCAL_URL_PREFIX.length);
       if (LOCAL_UPLOAD_NAME.test(name)) await unlink(path.join(LOCAL_UPLOAD_DIR, name));
-    } else if (process.env.BLOB_READ_WRITE_TOKEN) {
-      await del(url);
+    } else {
+      const token = blobToken();
+      if (token) await del(url, { token });
     }
   } catch (err) {
     console.warn("Brisanje stare slike nije uspjelo", err);

@@ -1,5 +1,6 @@
 import "server-only";
 import { Redis } from "@upstash/redis";
+import { redisToken, redisUrl } from "@/lib/env";
 import type { GuestRecord, RoomRecord } from "./types";
 
 /**
@@ -148,8 +149,8 @@ export function getRoomStore(): RoomStore {
   if (globalForStore.cheersRoomStore) return globalForStore.cheersRoomStore;
 
   // Vercel Marketplace (Upstash) postavlja KV_REST_API_*, ručna Upstash konfiguracija UPSTASH_REDIS_REST_*
-  const url = process.env.UPSTASH_REDIS_REST_URL ?? process.env.KV_REST_API_URL;
-  const token = process.env.UPSTASH_REDIS_REST_TOKEN ?? process.env.KV_REST_API_TOKEN;
+  const url = redisUrl();
+  const token = redisToken();
 
   let store: RoomStore;
   if (url && token) {
