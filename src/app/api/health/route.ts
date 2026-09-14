@@ -34,11 +34,19 @@ export async function GET() {
   }
 
   const ok = redis && blob && secretMatches;
+  // Dijagnostika: samo IMENA varijabli za bazu i spremište (bez vrijednosti), da se vidi
+  // je li Vercel integracija spojena na baš ovaj projekt i s kojim prefiksom
+  const storageEnvNames = Object.keys(process.env)
+    .filter((name) => /(^|_)(KV|REDIS|UPSTASH|BLOB)(_|$)|READ_WRITE_TOKEN/.test(name))
+    .sort();
+
   return Response.json(
     {
       ok,
       redis,
       blob,
+      storageEnvNames,
+      deployment: process.env.VERCEL_ENV ?? "local",
       party: { url: Boolean(partyUrl), secret: partySecret, reachable: partyReachable, secretMatches },
     },
     { status: ok ? 200 : 503, headers: { "Cache-Control": "no-store" } },
