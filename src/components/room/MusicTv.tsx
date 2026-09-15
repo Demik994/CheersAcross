@@ -1,12 +1,16 @@
 "use client";
 
-import { useEffect, useRef, useState, type RefObject } from "react";
+import dynamic from "next/dynamic";
+import { Component, useEffect, useRef, useState, type ReactNode, type RefObject } from "react";
 import type { MusicState } from "@/lib/party/protocol";
 import { saveMusicPreference, useMusicPreference } from "@/lib/musicPreference";
 import { FATAL_PLAYER_ERRORS, YT_STATE, loadYouTubeApi, type YTPlayer } from "@/lib/youtubePlayer";
+import { CRT, CRT_SCREEN_PX, crtLayout, crtRect } from "./crtLayout";
+import StaticNoise from "./StaticNoise";
 
-/** YouTube traži da player bude vidljiv i barem 200 × 200 px */
-const PLAYER_SIZE = 200;
+// Three.js samo na klijentu i u zasebnom bundleu — učitava se tek kad nešto zasvira
+const CrtTelevision = dynamic(() => import("@/components/scene/CrtTelevision"), { ssr: false });
+
 const SYNC_INTERVAL_MS = 1000;
 /** Koliko smijemo odstupiti od "zajedničke" pozicije pjesme prije premotavanja */
 const MAX_DRIFT_S = 2;
@@ -27,7 +31,7 @@ type Props = {
   onOpen: () => void;
 };
 
-/** Mali "televizor" u kutu: svima isti YouTube video, usklađen sa satom servera */
+/** Stari CRT televizor u kutu: svima isti YouTube video, usklađen sa satom servera */
 export default function MusicTv({ music, serverOffset, voiceLevels, isHost, onEnded, onOpen }: Props) {
   const preference = useMusicPreference();
   const current = music.current;
@@ -40,6 +44,8 @@ export default function MusicTv({ music, serverOffset, voiceLevels, isHost, onEn
   const [loadError, setLoadError] = useState<string | null>(null);
   /** id videa koji se na ovom uređaju ne može pustiti */
   const [playError, setPlayError] = useState<string | null>(null);
+  /** Pjesma koja je na ovom uređaju barem jednom zasvirala (do tada je na ekranu "snijeg") */
+  const [playingTrack, setPlayingTrack] = useState<string | null>(null);
 
   const currentRef = useRef(current);
   const onEndedRef = useRef(onEnded);
@@ -77,8 +83,8 @@ export default function MusicTv({ music, serverOffset, voiceLevels, isHost, onEn
         const mount = document.createElement("div");
         host.replaceChildren(mount);
         player = new YT.Player(mount, {
-          width: PLAYER_SIZE,
-          height: PLAYER_SIZE,
+          width: CRT_SCREEN_PX,
+          height: CRT_SCREEN_PX,
           playerVars: {
             playsinline: 1,
             controls: 0,
@@ -96,7 +102,10 @@ export default function MusicTv({ music, serverOffset, voiceLevels, isHost, onEn
             },
             onStateChange: ({ data }) => {
               if (data === YT_STATE.ENDED) reportEnd();
-              if (data === YT_STATE.PLAYING) stalledSince.current = null;
+              if (data === YT_STATE.PLAYING) {
+                stalledSince.current = null;
+                setPlayingTrack(loadedTrack.current);
+              }
             },
             onError: ({ data }) => {
               if (!FATAL_PLAYER_ERRORS.includes(data)) return;
@@ -212,54 +221,103 @@ export default function MusicTv({ music, serverOffset, voiceLevels, isHost, onEn
 
   if (!active || !current) return null;
   const paused = current.startedAt === null;
+  const cannotPlay = playError === current.track.videoId;
+  const layout = crtLayout(preference.side);
+  const screen = {
+    left: layout.centerX - CRT_SCREEN_PX / 2,
+    top: layout.centerY - CRT_SCREEN_PX / 2,
+    width: CRT_SCREEN_PX,
+    height: CRT_SCREEN_PX,
+  };
+  const plate = crtRect(
+    layout,
+    CRT.nameplate.left,
+    CRT.stripY - CRT.nameplate.halfHeight,
+    CRT.nameplate.right,
+    CRT.stripY + CRT.nameplate.halfHeight,
+  );
+  const knob = (x: number) => crtRect(layout, x - 0.14, CRT.stripY - 0.17, x + 0.14, CRT.stripY + 0.17);
 
   return (
     <div
-      className={`pointer-events-auto absolute top-[calc(max(0.75rem,env(safe-area-inset-top))+3.25rem)] z-10 w-[200px] overflow-hidden rounded-2xl bg-stone-950 shadow-xl ring-1 ring-white/15 ${
-        preference.side === "left" ? "left-3" : "right-3"
+      className={`pointer-events-none absolute top-[calc(max(0.75rem,env(safe-area-inset-top))+2.25rem)] z-[5] ${
+        preference.side === "left" ? "left-2" : "right-2"
       }`}
+      style={{ width: layout.width }}
     >
-      <div ref={hostRef} className="size-[200px] bg-black" />
-      {loadError && <p className="px-2 pt-1.5 text-xs text-red-300">{loadError}</p>}
-      {playError === current.track.videoId && (
-        <p className="px-2.5 pt-1.5 text-xs text-red-300">Ovaj video se ne može pustiti na tvom uređaju.</p>
-      )}
-      {needsTap && (
-        <button
-          type="button"
-          onClick={enableSound}
-          className="block h-9 w-full bg-amber-300 text-xs font-semibold text-stone-900 active:bg-amber-200"
-        >
-          🔊 Dodirni za zvuk glazbe
-        </button>
-      )}
-      <div className="flex h-9 items-center text-xs">
+      <div className="relative" style={{ width: layout.width, height: layout.height }}>
+        <TvErrorBoundary>
+          <CrtTelevision side={preference.side} lamp={cannotPlay ? "off" : paused ? "paused" : "playing"} />
+        </TvErrorBoundary>
+
+        <div ref={hostRef} className="pointer-events-auto absolute overflow-hidden rounded-[12px] bg-black" style={screen} />
+        {(cannotPlay || playingTrack !== current.track.id) && !paused && (
+          <StaticNoise style={screen} label={cannotPlay ? "NEMA SIGNALA · ovaj video ne može na tvom uređaju" : undefined} />
+        )}
+
         <button
           type="button"
           onClick={onOpen}
-          className="flex h-full min-w-0 flex-1 items-center gap-1 pl-2.5 text-left active:bg-white/10"
-          aria-label="Otvori glazbu"
+          aria-label={`Glazba: ${current.track.title}`}
+          className="pointer-events-auto absolute flex items-center gap-1 overflow-hidden rounded-sm px-1.5 text-left font-mono text-[10px] text-amber-300 active:text-amber-100"
+          style={plate}
         >
-          <span aria-hidden>{paused ? "⏸" : "🎵"}</span>
+          <span aria-hidden>{paused ? "⏸" : "♪"}</span>
           <span className="truncate">{current.track.title}</span>
         </button>
         <button
           type="button"
           onClick={() => saveMusicPreference({ side: preference.side === "left" ? "right" : "left" })}
-          aria-label="Premjesti video na drugu stranu"
-          className="h-full w-8 shrink-0 text-foreground/70 active:bg-white/10"
+          aria-label="Premjesti televizor na drugu stranu"
+          title="Premjesti televizor"
+          className="pointer-events-auto absolute flex items-center justify-center rounded-full text-stone-800 active:text-black"
+          style={knob(CRT.knobs[0])}
         >
-          ⇆
+          <svg viewBox="0 0 16 16" className="size-3" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+            <path d="M2 5h11M10 2l3 3-3 3M14 11H3M6 8l-3 3 3 3" />
+          </svg>
         </button>
         <button
           type="button"
           onClick={() => saveMusicPreference({ enabled: false })}
           aria-label="Isključi glazbu za mene"
-          className="h-full w-8 shrink-0 text-foreground/70 active:bg-white/10"
+          title="Isključi glazbu za mene"
+          className="pointer-events-auto absolute flex items-center justify-center rounded-full text-stone-800 active:text-black"
+          style={knob(CRT.knobs[1])}
         >
-          ✕
+          <svg viewBox="0 0 16 16" className="size-3" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" aria-hidden>
+            <path d="M8 1.5v6M4.5 3.8a5.5 5.5 0 1 0 7 0" />
+          </svg>
         </button>
       </div>
+
+      {(loadError || needsTap) && (
+        <div className="pointer-events-auto mx-auto -mt-1 flex w-[216px] flex-col gap-1">
+          {loadError && <p className="rounded-lg bg-black/70 px-2 py-1 text-xs text-red-300">{loadError}</p>}
+          {needsTap && (
+            <button
+              type="button"
+              onClick={enableSound}
+              className="h-9 rounded-full bg-amber-300 text-xs font-semibold text-stone-900 shadow-lg active:bg-amber-200"
+            >
+              🔊 Dodirni za zvuk glazbe
+            </button>
+          )}
+        </div>
+      )}
     </div>
   );
+}
+
+/** Ako WebGL ne radi, player i gumbi ostaju — samo bez kućišta */
+class TvErrorBoundary extends Component<{ children: ReactNode }, { failed: boolean }> {
+  state = { failed: false };
+
+  static getDerivedStateFromError() {
+    return { failed: true };
+  }
+
+  render() {
+    return this.state.failed ? <div className="absolute inset-x-2 top-12 bottom-1 rounded-3xl bg-stone-800" /> : this.props.children;
+  }
 }
