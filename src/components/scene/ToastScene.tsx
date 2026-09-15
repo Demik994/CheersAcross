@@ -17,7 +17,7 @@ import GuestGlass from "./GuestGlass";
 import GuestSeat from "./GuestSeat";
 import ResponsiveCamera from "./ResponsiveCamera";
 import SceneTelevision, { type SceneTvProps } from "./SceneTelevision";
-import { VOMIT_DURATION_MS } from "./VomitStream";
+import { celebrationDelay } from "./tableStunt";
 import Table, { TABLE_TOP_Y } from "./Table";
 import TableSpace from "./TableSpace";
 
@@ -66,11 +66,14 @@ export default function ToastScene({
   const toasting = live?.phase === "toasting";
   const roundAnimated = revealStartedAt !== null && revealStartedAt !== REVEAL_ALREADY_DONE;
   const anyVomit = (live?.vomiting.size ?? 0) > 0;
-  // Ako netko povraća, konfeti i slika dolaze tek nakon toga
-  const confettiAt = roundAnimated ? revealStartedAt + DRINK_DURATION_MS + (anyVomit ? VOMIT_DURATION_MS : 0) : null;
+  const anyFall = (live?.falling.size ?? 0) > 0;
+  // Ako netko povraća ili pada sa stola, konfeti i slika dolaze tek nakon toga
+  const confettiAt = roundAnimated ? revealStartedAt + celebrationDelay(anyVomit, anyFall) : null;
   const levelOf = (id: string) => drunkLevel(live?.intoxication.get(id) ?? 0);
   // Tko je ušao nakon runde vidi samo lokvu, bez ponovnog mlaza
   const vomitAt = revealStartedAt === null ? null : roundAnimated ? revealStartedAt + DRINK_DURATION_MS + 200 : REVEAL_ALREADY_DONE;
+  // Numera na stolu kreće odmah (umjesto običnog pijenja); tko uđe kasnije, vidi ga već na podu
+  const stuntAt = revealStartedAt === null ? null : roundAnimated ? revealStartedAt : REVEAL_ALREADY_DONE;
 
   return (
     <Canvas
@@ -116,6 +119,8 @@ export default function ToastScene({
                 voice={live?.peers.find((p) => p.guestId === guest.id) ?? null}
                 voiceLevels={voiceLevels}
                 vomitStartedAt={live?.vomiting.has(guest.id) ? vomitAt : null}
+                stuntStartedAt={live?.falling.has(guest.id) ? stuntAt : null}
+                lying={live?.fallen.has(guest.id) ?? false}
               />
               <GuestGlass
                 guest={guest}
@@ -125,6 +130,8 @@ export default function ToastScene({
                 glassTargets={glassTargets}
                 onMove={onMyGlassMove}
                 revealStartedAt={revealStartedAt}
+                stuntStartedAt={live?.falling.has(guest.id) ? stuntAt : null}
+                lying={(live?.fallen.has(guest.id) ?? false) && !live?.falling.has(guest.id)}
               />
             </group>
           );

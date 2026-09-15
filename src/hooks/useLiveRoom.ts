@@ -5,6 +5,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { ApiError, roomApi } from "@/lib/roomApi";
 import { REVEAL_ALREADY_DONE } from "@/lib/party/geometry";
 import {
+  DEFAULT_MUSIC_VOLUME,
   PARTY_NAME,
   type ClientMessage,
   type GlassPosition,
@@ -33,6 +34,10 @@ export type LiveInfo = {
   intoxication: ReadonlyMap<string, number>;
   /** Tko povraća na kraju ove runde */
   vomiting: ReadonlySet<string>;
+  /** Tko se u ovoj rundi penje na stol i pada */
+  falling: ReadonlySet<string>;
+  /** Tko leži na podu */
+  fallen: ReadonlySet<string>;
   /** Spojeni preglednici i tko koristi mikrofon */
   peers: readonly Peer[];
   /** Broj završenih zdravica */
@@ -43,7 +48,7 @@ export type LiveInfo = {
   music: MusicState;
 };
 
-const NO_MUSIC: MusicState = { current: null, queue: [] };
+const NO_MUSIC: MusicState = { current: null, queue: [], volume: DEFAULT_MUSIC_VOLUME };
 
 /** Zadnja poruka svakog gosta koja se trenutno prikazuje u oblačiću */
 export type ChatBubbles = ReadonlyMap<string, { text: string; id: number }>;
@@ -153,10 +158,12 @@ export function useLiveRoom(code: string, session: GuestSession) {
             // `?? …`: stariji real-time server (prije deploya) ne šalje ova polja
             intoxication: new Map(Object.entries(message.intoxication ?? {})),
             vomiting: new Set(message.vomiting ?? []),
+            falling: new Set(message.falling ?? []),
+            fallen: new Set(message.fallen ?? []),
             peers: message.peers ?? [],
             round: message.round ?? 0,
             photoRound: message.photoRound ?? 1,
-            music: message.music ?? NO_MUSIC,
+            music: { ...NO_MUSIC, ...message.music },
           });
 
           const previous = lastPhase.current;

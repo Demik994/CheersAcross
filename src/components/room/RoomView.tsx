@@ -16,9 +16,9 @@ import { roomApi, type Look } from "@/lib/roomApi";
 import type { GuestSession, PublicGuest } from "@/lib/rooms/types";
 import { DRINK_DURATION_MS, REVEAL_ALREADY_DONE } from "@/lib/party/geometry";
 import { clearSession } from "@/lib/session";
-import { playCelebration, playVomit, unlockAudio } from "@/lib/sound";
+import { playCelebration, playThud, playVomit, unlockAudio } from "@/lib/sound";
 import { DRUNK_LEVELS, drunkLevel } from "@/lib/drunk";
-import { VOMIT_DURATION_MS } from "@/components/scene/VomitStream";
+import { STUNT, celebrationDelay } from "@/components/scene/tableStunt";
 import AvatarSheet from "./AvatarSheet";
 import ChatInput from "./ChatInput";
 import GuestListSheet from "./GuestListSheet";
@@ -97,6 +97,7 @@ export default function RoomView({ code, session }: { code: string; session: Gue
   }, []);
 
   const anyVomit = (live?.vomiting.size ?? 0) > 0;
+  const anyFall = (live?.falling.size ?? 0) > 0;
 
   // Nakon animacije pijenja (i eventualnog povraćanja): otkrij sliku, konfeti i melodija
   useEffect(() => {
@@ -106,18 +107,21 @@ export default function RoomView({ code, session }: { code: string; session: Gue
     const drinkEnd = revealStartedAt + DRINK_DURATION_MS;
     const vomitTimer =
       animated && anyVomit ? setTimeout(playVomit, Math.max(0, drinkEnd + 200 - now)) : undefined;
+    // "Bum" kad padne na pod
+    const thudTimer = animated && anyFall ? setTimeout(playThud, Math.max(0, revealStartedAt + STUNT.landAt - now)) : undefined;
     const timer = setTimeout(
       () => {
         setCelebratedRound(revealStartedAt);
         if (animated) playCelebration();
       },
-      Math.max(0, drinkEnd + (anyVomit ? VOMIT_DURATION_MS : 0) - now),
+      Math.max(0, revealStartedAt + celebrationDelay(anyVomit, anyFall) - now),
     );
     return () => {
       clearTimeout(timer);
       clearTimeout(vomitTimer);
+      clearTimeout(thudTimer);
     };
-  }, [revealStartedAt, anyVomit]);
+  }, [revealStartedAt, anyVomit, anyFall]);
 
   if (error?.status === 404) return <RoomGone />;
   if (!state) return <FullscreenMessage text={error ? error.message : "Ulazimo u sobu…"} />;

@@ -9,6 +9,7 @@ import type { PublicGuest } from "@/lib/rooms/types";
 import Glass from "./Glass";
 import { DRINK_DURATION_MS, SEAT_RADIUS, glassRestPosition } from "@/lib/party/geometry";
 import { TABLE_TOP_Y } from "./Table";
+import { STUNT, stuntGlass } from "./tableStunt";
 
 const GLASS_SCALE = 0.72;
 /** Podignuta čaša (dok je netko drži) */
@@ -29,6 +30,10 @@ type Props = {
   onMove: (position: GlassPosition | null) => void;
   /** performance.now() početka pijenja; null = runda još nije završila */
   revealStartedAt: number | null;
+  /** gost se penje na stol i ekira (performance.now() početka) */
+  stuntStartedAt: number | null;
+  /** gost leži na podu — čaša ostaje na stolu i samo se isprazni */
+  lying: boolean;
 };
 
 /** Gdje je čaša dok lik pije (ispred lica) */
@@ -47,7 +52,17 @@ const smoothstep = (edge0: number, edge1: number, x: number) => {
  * Kad se pusti, čaša se vrati na mjesto ispred gosta.
  * Kad se svi kucnu, lik podigne čašu do usta, nagne je i ispije.
  */
-export default function GuestGlass({ guest, angle, isMe, draggable, glassTargets, onMove, revealStartedAt }: Props) {
+export default function GuestGlass({
+  guest,
+  angle,
+  isMe,
+  draggable,
+  glassTargets,
+  onMove,
+  revealStartedAt,
+  stuntStartedAt,
+  lying,
+}: Props) {
   const groupRef = useRef<Group>(null);
   const hintRef = useRef<Mesh>(null);
   const dragging = useRef(false);
@@ -72,8 +87,26 @@ export default function GuestGlass({ guest, angle, isMe, draggable, glassTargets
     g.rotation.y = angle;
 
     const progress = revealStartedAt === null ? null : (performance.now() - revealStartedAt) / DRINK_DURATION_MS;
+    const stuntAge = stuntStartedAt === null ? null : performance.now() - stuntStartedAt;
+    const stunting = stuntAge !== null && stuntAge < STUNT.slamEnd;
+    const animating = stunting || (progress !== null && progress < 1);
 
-    if (progress !== null && progress < 1) {
+    if (stunting) {
+      // Na stolu: podigne čašu do usta (stoji, pa je visoko), prevrne je i lupi natrag na stol
+      const s = stuntGlass(stuntAge);
+      const rest = glassRestPosition(angle);
+      const mouthRadius = SEAT_RADIUS - s.mouth.z;
+      g.position.set(
+        MathUtils.lerp(rest.x, Math.sin(angle) * mouthRadius, s.lift),
+        TABLE_TOP_Y + s.lift * s.mouth.y,
+        MathUtils.lerp(rest.z, Math.cos(angle) * mouthRadius, s.lift),
+      );
+      g.rotation.x = s.tilt;
+      level.current = s.level;
+    } else if (progress !== null && progress < 1 && lying) {
+      // Leži na podu: čaša ostane na stolu, samo se isprazni
+      level.current = 1 - smoothstep(0.36, 0.7, progress);
+    } else if (progress !== null && progress < 1) {
       // 0–0.3 podizanje do usta · 0.3–0.72 naginjanje i pijenje · 0.72–1 spuštanje
       const lift = smoothstep(0, 0.3, progress) * (1 - smoothstep(0.72, 1, progress));
       const tilt = smoothstep(0.3, 0.48, progress) * (1 - smoothstep(0.66, 0.84, progress));
@@ -93,7 +126,7 @@ export default function GuestGlass({ guest, angle, isMe, draggable, glassTargets
       g.rotation.x = MathUtils.damp(g.rotation.x, 0, 8, delta);
     }
 
-    if (!dragging.current && (progress === null || progress >= 1)) {
+    if (!dragging.current && !(animating && !lying)) {
       const remote = isMe ? null : glassTargets.current.get(guest.id) ?? null;
       const target = remote ?? glassRestPosition(angle);
       const lambda = remote ? 14 : 6;

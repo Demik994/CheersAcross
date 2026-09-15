@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, type FormEvent, type ReactNode } from "react";
+import { useEffect, useRef, useState, type FormEvent, type ReactNode } from "react";
 import { MUSIC_ADD_INTERVAL_MS, MUSIC_QUEUE_LIMIT, type MusicAction, type MusicState, type MusicTrack } from "@/lib/party/protocol";
 import { saveMusicPreference, useMusicPreference } from "@/lib/musicPreference";
 import type { PublicGuest } from "@/lib/rooms/types";
@@ -28,6 +28,20 @@ export default function MusicSheet({ music, guests, meId, isHost, connected, ser
   /** Broj pjesama u trenutku slanja — kad se promijeni, dodavanje je uspjelo */
   const [pending, setPending] = useState<{ count: number; at: number } | null>(null);
   const [lastAddAt, setLastAddAt] = useState(0);
+  /** Domaćin vuče klizač — lokalna vrijednost dok server ne potvrdi */
+  const [draftVolume, setDraftVolume] = useState<number | null>(null);
+  const lastVolumeSent = useRef(0);
+  const volume = draftVolume ?? music.volume;
+
+  function changeVolume(value: number, final: boolean) {
+    setDraftVolume(final ? null : value);
+    const now = Date.now();
+    // Dok se vuče, najviše ~6 poruka u sekundi; kraj poteza uvijek pošalji
+    if (final || now - lastVolumeSent.current > 150) {
+      lastVolumeSent.current = now;
+      onAction({ action: "volume", value });
+    }
+  }
 
   const trackCount = music.queue.length + (music.current ? 1 : 0);
   const addDone = pending !== null && (trackCount !== pending.count || (serverError !== null && serverError.id >= pending.at));
@@ -108,6 +122,28 @@ export default function MusicSheet({ music, guests, meId, isHost, connected, ser
               Ništa ne svira. Dodaj prvu pjesmu!
             </p>
           )}
+
+          <div className="flex flex-col gap-1.5">
+            <label htmlFor="music-volume" className="flex items-center justify-between text-sm font-medium">
+              <span>{isHost ? "Glasnoća za sve" : "Glasnoća (postavlja domaćin)"}</span>
+              <span className="text-xs font-normal text-foreground/60 tabular-nums">
+                {volume === 0 ? "🔇" : volume < 40 ? "🔈" : volume < 75 ? "🔉" : "🔊"} {volume}%
+              </span>
+            </label>
+            <input
+              id="music-volume"
+              type="range"
+              min={0}
+              max={100}
+              step={1}
+              value={volume}
+              disabled={!isHost || !connected}
+              onChange={(e) => changeVolume(Number(e.target.value), false)}
+              onPointerUp={(e) => changeVolume(Number(e.currentTarget.value), true)}
+              onKeyUp={(e) => changeVolume(Number(e.currentTarget.value), true)}
+              className="h-8 w-full accent-amber-300 disabled:opacity-50"
+            />
+          </div>
 
           <form onSubmit={add} className="flex flex-col gap-2">
             <label htmlFor="music-url" className="text-sm font-medium">
@@ -191,8 +227,8 @@ export default function MusicSheet({ music, guests, meId, isHost, connected, ser
               {isHost
                 ? "Svi mogu predlagati pjesme, a ti upravljaš redom. "
                 : "Pjesme predlažu svi, a domaćin pauzira i preskače. "}
-              Video mora biti vidljiv dok svira (pravilo YouTubea), neki videi se ne smiju puštati izvan YouTubea, a
-              mogu se pojaviti i reklame.
+              Video svira na televizoru pored stola. Neki videi se ne smiju puštati izvan YouTubea, a mogu se
+              pojaviti i reklame.
             </p>
           </div>
         </div>

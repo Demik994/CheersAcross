@@ -36,6 +36,10 @@ export type LiveSnapshot = {
   intoxication: Record<string, number>;
   /** Tko povraća na kraju ove runde (prazno dok runda nije gotova) */
   vomiting: string[];
+  /** Tko se u ovoj rundi penje na stol, ekira i padne (već je povraćao, a opet je popio) */
+  falling: string[];
+  /** Tko leži na podu — ostaje dok ga limunada ne otrijezni ispod granice povraćanja */
+  fallen: string[];
   /** Spojeni preglednici (jedan gost može imati više tabova) i njihov način razgovora */
   peers: Peer[];
   /** Broj završenih zdravica u sobi (1 = prva je gotova) */
@@ -65,6 +69,8 @@ export type MusicState = {
     pausedAt: number | null;
   } | null;
   queue: MusicTrack[];
+  /** Glasnoća glazbe za sve (0–100), postavlja domaćin */
+  volume: number;
 };
 
 export type MusicAction =
@@ -75,6 +81,8 @@ export type MusicAction =
   | { action: "pause" }
   | { action: "resume" }
   | { action: "skip" }
+  /** domaćin: glasnoća za sve (0–100) */
+  | { action: "volume"; value: number }
   /** domaćin ili tko je dodao: makni iz reda */
   | { action: "remove"; trackId: string }
   /** bilo koji preglednik: pjesma je završila (server prelazi na sljedeću samo jednom) */
@@ -141,6 +149,8 @@ export type RoomUpdate = { type: "room"; state: RoomState };
 
 /** Čaše se ne mogu odvući izvan ploče stola */
 export const MAX_GLASS_RADIUS = 1.6;
+
+export const DEFAULT_MUSIC_VOLUME = 70;
 
 /** Najviše pjesama u redu */
 export const MUSIC_QUEUE_LIMIT = 30;

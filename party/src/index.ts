@@ -10,6 +10,7 @@ import {
 import {
   CHAT_MIN_INTERVAL_MS,
   MAX_GLASS_RADIUS,
+  DEFAULT_MUSIC_VOLUME,
   MAX_PHOTO_ROUND,
   MUSIC_ADD_INTERVAL_MS,
   MUSIC_QUEUE_LIMIT,
@@ -63,9 +64,13 @@ export class ToastRoom extends Server<Env> {
   private phase: ToastPhase = "lobby";
   private intoxication: Record<string, number> = {};
   private vomiting: string[] = [];
+  /** Tko je već povraćao (dok se ne otrijezni) — idući put umjesto povraćanja pada sa stola */
+  private vomited: string[] = [];
+  private falling: string[] = [];
+  private fallen: string[] = [];
   private round = 0;
   private photoRound = 1;
-  private music: MusicState = { current: null, queue: [] };
+  private music: MusicState = emptyMusic();
 
   private held = new Map<string, GlassPosition>();
   private touching = new Set<string>();
@@ -81,6 +86,9 @@ export class ToastRoom extends Server<Env> {
       "phase",
       "intoxication",
       "vomiting",
+      "vomited",
+      "falling",
+      "fallen",
       "round",
       "photoRound",
       "music",
@@ -91,9 +99,12 @@ export class ToastRoom extends Server<Env> {
     this.phase = (stored.get("phase") as ToastPhase | undefined) ?? "lobby";
     this.intoxication = (stored.get("intoxication") as Record<string, number> | undefined) ?? {};
     this.vomiting = (stored.get("vomiting") as string[] | undefined) ?? [];
+    this.vomited = (stored.get("vomited") as string[] | undefined) ?? [];
+    this.falling = (stored.get("falling") as string[] | undefined) ?? [];
+    this.fallen = (stored.get("fallen") as string[] | undefined) ?? [];
     this.round = (stored.get("round") as number | undefined) ?? 0;
     this.photoRound = (stored.get("photoRound") as number | undefined) ?? 1;
-    this.music = (stored.get("music") as MusicState | undefined) ?? { current: null, queue: [] };
+    this.music = { ...emptyMusic(), ...(stored.get("music") as MusicState | undefined) };
   }
 
   getConnectionTags(_connection: Connection, ctx: ConnectionContext) {
@@ -194,6 +205,8 @@ export class ToastRoom extends Server<Env> {
         this.ready.clear();
         this.resetRound();
         this.vomiting = [];
+        // Tko je pao, i dalje leži — samo animacija pada je gotova
+        this.falling = [];
         await this.persist();
         this.broadcastSnapshot();
         return;
@@ -236,6 +249,9 @@ export class ToastRoom extends Server<Env> {
     this.clinked = new Set([...this.clinked].filter((id) => guestIds.has(id)));
     this.intoxication = Object.fromEntries(Object.entries(this.intoxication).filter(([id]) => guestIds.has(id)));
     this.vomiting = this.vomiting.filter((id) => guestIds.has(id));
+    this.vomited = this.vomited.filter((id) => guestIds.has(id));
+    this.falling = this.falling.filter((id) => guestIds.has(id));
+    this.fallen = this.fallen.filter((id) => guestIds.has(id));
     for (const id of this.held.keys()) if (!guestIds.has(id)) this.held.delete(id);
     for (const connection of this.getConnections<ConnectionState>()) {
       const id = connection.state?.guestId;
@@ -264,9 +280,12 @@ export class ToastRoom extends Server<Env> {
     this.phase = "lobby";
     this.intoxication = {};
     this.vomiting = [];
+    this.vomited = [];
+    this.falling = [];
+    this.fallen = [];
     this.round = 0;
     this.photoRound = 1;
-    this.music = { current: null, queue: [] };
+    this.music = emptyMusic();
   }
 
   // ---------- kucanje ----------
@@ -376,6 +395,13 @@ export class ToastRoom extends Server<Env> {
         this.playNext(now);
         break;
       }
+      case "volume": {
+        if (!isHost || typeof message.value !== "number" || !Number.isFinite(message.value)) return;
+        const volume = Math.round(Math.min(100, Math.max(0, message.value)));
+        if (volume === music.volume) return;
+        music.volume = volume;
+        break;
+      }
       case "ended": {
         // Više preglednika javi kraj iste pjesme — prelazimo samo jednom
         if (!current || current.track.id !== message.trackId) return;
@@ -431,15 +457,31 @@ export class ToastRoom extends Server<Env> {
     }
   }
 
-  /** Kraj runde: svatko popije svoje piće (limunada otrježnjuje), pa tko je prešao granicu — povraća */
+  /**
+   * Kraj runde: svatko popije svoje piće (limunada otrježnjuje). Tko je prešao granicu:
+   * prvi put povraća, idući put se popne na stol, ekira i padne na pod — i leži dok se ne otrijezni.
+   */
   private finishRound() {
     const guests = this.room?.guests ?? [];
     this.round += 1;
     this.vomiting = [];
+    this.falling = [];
     for (const guest of guests) {
-      const next = afterDrinking(this.intoxication[guest.id] ?? 0, guest.drink);
-      this.intoxication[guest.id] = next;
-      if (drunkLevel(next) >= VOMIT_LEVEL) this.vomiting.push(guest.id);
+      const id = guest.id;
+      const next = afterDrinking(this.intoxication[id] ?? 0, guest.drink);
+      this.intoxication[id] = next;
+      if (drunkLevel(next) < VOMIT_LEVEL) {
+        this.vomited = this.vomited.filter((g) => g !== id);
+        this.fallen = this.fallen.filter((g) => g !== id);
+      } else if (this.fallen.includes(id)) {
+        // već leži — pije s poda
+      } else if (this.vomited.includes(id)) {
+        this.falling.push(id);
+        this.fallen.push(id);
+      } else {
+        this.vomiting.push(id);
+        this.vomited.push(id);
+      }
     }
   }
 
@@ -451,6 +493,9 @@ export class ToastRoom extends Server<Env> {
       phase: this.phase,
       intoxication: this.intoxication,
       vomiting: this.vomiting,
+      vomited: this.vomited,
+      falling: this.falling,
+      fallen: this.fallen,
       round: this.round,
       photoRound: this.photoRound,
       music: this.music,
@@ -487,6 +532,8 @@ export class ToastRoom extends Server<Env> {
       phase: this.phase,
       intoxication: this.intoxication,
       vomiting: this.vomiting,
+      falling: this.falling,
+      fallen: this.fallen,
       peers: this.peers(excludeConnectionId),
       round: this.round,
       photoRound: this.photoRound,
@@ -520,6 +567,8 @@ async function fetchYouTubeTitle(videoId: string): Promise<string | null> {
     return "YouTube video";
   }
 }
+
+const emptyMusic = (): MusicState => ({ current: null, queue: [], volume: DEFAULT_MUSIC_VOLUME });
 
 const pairKey = (a: string, b: string) => (a < b ? `${a}|${b}` : `${b}|${a}`);
 

@@ -13,8 +13,8 @@ const MAX_DRIFT_S = 2;
 /** Ako pjesma ne krene za ovoliko, preglednik je blokirao zvuk — sviramo utišano i tražimo dodir */
 const AUTOPLAY_TIMEOUT_MS = 2500;
 const DUCK_CHECK_MS = 150;
-/** Glasnoća glazbe dok netko govori (0–100) */
-const DUCKED_VOLUME = 30;
+/** Dok netko govori, glazba se stiša na ovaj dio glasnoće koju je postavio domaćin */
+const DUCKED_FACTOR = 0.35;
 const DUCK_HOLD_MS = 700;
 
 type Props = {
@@ -47,6 +47,7 @@ export default function MusicTv({ music, serverOffset, voiceLevels, isHost, brid
 
   const currentRef = useRef(current);
   const onEndedRef = useRef(onEnded);
+  const volumeRef = useRef(music.volume);
   const isHostRef = useRef(isHost);
   /** Pjesma (id u redu) koju je ovaj player zadnju učitao */
   const loadedTrack = useRef<string | null>(null);
@@ -56,6 +57,7 @@ export default function MusicTv({ music, serverOffset, voiceLevels, isHost, brid
   useEffect(() => {
     currentRef.current = current;
     onEndedRef.current = onEnded;
+    volumeRef.current = music.volume;
     isHostRef.current = isHost;
   });
 
@@ -203,7 +205,7 @@ export default function MusicTv({ music, serverOffset, voiceLevels, isHost, brid
     return () => clearInterval(timer);
   }, [ready, current, serverOffset]);
 
-  // Utišaj glazbu dok netko govori
+  // Glasnoća koju je postavio domaćin; stiša se dok netko govori
   useEffect(() => {
     if (!ready) return;
     let lastSpeech = 0;
@@ -215,7 +217,7 @@ export default function MusicTv({ music, serverOffset, voiceLevels, isHost, brid
       for (const level of voiceLevels.values()) {
         if (level > 0.1) lastSpeech = now;
       }
-      const next = now - lastSpeech < DUCK_HOLD_MS ? DUCKED_VOLUME : 100;
+      const next = Math.round(volumeRef.current * (now - lastSpeech < DUCK_HOLD_MS ? DUCKED_FACTOR : 1));
       if (next !== volume) {
         volume = next;
         player.setVolume(next);

@@ -99,6 +99,41 @@ export function playVomit() {
   noise.stop(now + duration);
 }
 
+/** Tup udarac tijela o pod (pad sa stola) */
+export function playThud() {
+  const ctx = getContext();
+  if (!ctx || ctx.state !== "running") return;
+  const now = ctx.currentTime + 0.02;
+
+  // duboki "bum": sinus koji brzo pada po visini
+  const body = ctx.createOscillator();
+  body.type = "sine";
+  body.frequency.setValueAtTime(110, now);
+  body.frequency.exponentialRampToValueAtTime(38, now + 0.35);
+  const bodyGain = ctx.createGain();
+  bodyGain.gain.setValueAtTime(0.0001, now);
+  bodyGain.gain.exponentialRampToValueAtTime(1, now + 0.012);
+  bodyGain.gain.exponentialRampToValueAtTime(0.001, now + 0.5);
+  body.connect(bodyGain).connect(ctx.destination);
+  body.start(now);
+  body.stop(now + 0.55);
+
+  // kratak šum udarca
+  const length = Math.floor(ctx.sampleRate * 0.12);
+  const buffer = ctx.createBuffer(1, length, ctx.sampleRate);
+  const data = buffer.getChannelData(0);
+  for (let i = 0; i < length; i++) data[i] = (Math.random() * 2 - 1) * (1 - i / length) ** 3;
+  const noise = ctx.createBufferSource();
+  noise.buffer = buffer;
+  const filter = ctx.createBiquadFilter();
+  filter.type = "lowpass";
+  filter.frequency.value = 900;
+  const noiseGain = ctx.createGain();
+  noiseGain.gain.value = 0.6;
+  noise.connect(filter).connect(noiseGain).connect(ctx.destination);
+  noise.start(now);
+}
+
 /** Kratka svečana melodija kad se otkrije slika */
 export function playCelebration() {
   const ctx = getContext();

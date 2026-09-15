@@ -1,6 +1,6 @@
 "use client";
 
-import { useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useFrame } from "@react-three/fiber";
 import { Html } from "@react-three/drei";
 import { MathUtils, type Group, type Mesh, type MeshBasicMaterial } from "three";
@@ -10,6 +10,9 @@ import type { PublicGuest } from "@/lib/rooms/types";
 import Character from "./Character";
 import { SEAT_RADIUS, angleDelta } from "@/lib/party/geometry";
 import { TABLE_TOP_Y } from "./Table";
+import { STUNT, lyingHeadInSeatSpace } from "./tableStunt";
+
+const LYING_HEAD = lyingHeadInSeatSpace();
 
 type Props = {
   guest: PublicGuest;
@@ -23,6 +26,10 @@ type Props = {
   showLabel: boolean;
   drunk: DrunkLevel;
   vomitStartedAt: number | null;
+  /** penje se na stol i pada (performance.now() početka) */
+  stuntStartedAt: number | null;
+  /** leži na podu */
+  lying: boolean;
   bubble: { text: string; id: number } | null;
   /** null = gost nije spojen */
   voice: Peer | null;
@@ -42,10 +49,20 @@ export default function GuestSeat({
   showLabel,
   drunk,
   vomitStartedAt,
+  stuntStartedAt,
+  lying,
   bubble,
   voice,
   voiceLevels,
 }: Props) {
+  // Oznaka i oblačić prate glavu kad lik leži — od trenutka kad padne na pod
+  const [landedAt, setLandedAt] = useState<number | null>(null);
+  useEffect(() => {
+    if (stuntStartedAt === null) return;
+    const timer = setTimeout(() => setLandedAt(stuntStartedAt), Math.max(0, stuntStartedAt + STUNT.landAt - performance.now()));
+    return () => clearTimeout(timer);
+  }, [stuntStartedAt]);
+  const onFloor = lying && (stuntStartedAt === null || landedAt === stuntStartedAt);
   const pivotRef = useRef<Group>(null);
   const ringRef = useRef<Mesh>(null);
   /** Glasnoća govora 0..1 — Character po njoj otvara usta */
@@ -79,6 +96,8 @@ export default function GuestSeat({
         sleepy={offline}
         drunk={drunk}
         vomitStartedAt={vomitStartedAt}
+        stuntStartedAt={stuntStartedAt}
+        lying={lying}
         talkRef={talk}
         position={[0, TABLE_TOP_Y, SEAT_RADIUS]}
         rotation-y={Math.PI}
@@ -92,7 +111,13 @@ export default function GuestSeat({
 
       {bubble && showLabel && (
         <Html
-          position={isMe ? [0, TABLE_TOP_Y + 1.02, SEAT_RADIUS] : [0, TABLE_TOP_Y + 1.12, SEAT_RADIUS + 0.05]}
+          position={
+            onFloor
+              ? [LYING_HEAD[0], LYING_HEAD[1] + 0.55, LYING_HEAD[2]]
+              : isMe
+                ? [0, TABLE_TOP_Y + 1.02, SEAT_RADIUS]
+                : [0, TABLE_TOP_Y + 1.12, SEAT_RADIUS + 0.05]
+          }
           zIndexRange={[7, 1]}
           style={{ pointerEvents: "none" }}
         >
@@ -109,7 +134,13 @@ export default function GuestSeat({
       {showLabel && (
       <Html
         // Svoju oznaku gledam s leđa lika — pomaknuta je u stranu da ne skriva moju (možda sitnu) čašu
-        position={isMe ? [-0.62, TABLE_TOP_Y + 0.55, SEAT_RADIUS + 0.1] : [0, TABLE_TOP_Y + 0.92, SEAT_RADIUS + 0.05]}
+        position={
+          onFloor
+            ? [LYING_HEAD[0], LYING_HEAD[1] + 0.4, LYING_HEAD[2]]
+            : isMe
+              ? [-0.62, TABLE_TOP_Y + 0.55, SEAT_RADIUS + 0.1]
+              : [0, TABLE_TOP_Y + 0.92, SEAT_RADIUS + 0.05]
+        }
         center
         zIndexRange={[5, 0]}
         style={{ pointerEvents: "none" }}

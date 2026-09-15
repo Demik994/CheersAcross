@@ -5,6 +5,7 @@ import { useFrame, type ThreeElements } from "@react-three/fiber";
 import { MathUtils, type Group, type Mesh } from "three";
 import { AVATARS, SKIN_TONES, type Avatar, type AvatarId } from "@/lib/avatars";
 import type { DrunkLevel } from "@/lib/drunk";
+import { LYING_POSE, SEATED_POSE, STAND_HEIGHT, stuntPose } from "./tableStunt";
 import VomitStream, { VOMIT_DURATION_MS } from "./VomitStream";
 
 const HEAD_RADIUS = 0.24;
@@ -29,6 +30,10 @@ type CharacterProps = ThreeElements["group"] & {
   drunk?: DrunkLevel;
   /** performance.now() početka povraćanja, ili null */
   vomitStartedAt?: number | null;
+  /** performance.now() početka penjanja na stol i pada, ili null */
+  stuntStartedAt?: number | null;
+  /** leži na podu (pao je i još se nije otrijeznio) */
+  lying?: boolean;
   /** Glasnoća govora 0..1 (otvaranje usta) */
   talkRef?: RefObject<number>;
 };
@@ -52,6 +57,8 @@ export default function Character({
   sleepy = false,
   drunk = 0,
   vomitStartedAt = null,
+  stuntStartedAt = null,
+  lying = false,
   talkRef,
   ...groupProps
 }: CharacterProps) {
@@ -62,6 +69,9 @@ export default function Character({
 
   const upperRef = useRef<Group>(null);
   const mouthRef = useRef<Mesh>(null);
+  const pivotRef = useRef<Group>(null);
+  const seatedLegsRef = useRef<Group>(null);
+  const straightLegsRef = useRef<Group>(null);
 
   // "Disanje" i njihanje; pijani se njišu jače i sporije, a dok povraćaju nagnu se naprijed
   useFrame(({ clock }, delta) => {
@@ -72,11 +82,29 @@ export default function Character({
     const vomitAge = vomitStartedAt === null ? -1 : performance.now() - vomitStartedAt;
     const vomiting = vomitAge >= 0 && vomitAge < VOMIT_DURATION_MS;
 
+    // Na stolici, na stolu ili na podu
+    const pose =
+      stuntStartedAt !== null ? stuntPose(performance.now() - stuntStartedAt) : lying ? LYING_POSE : SEATED_POSE;
+    const pivot = pivotRef.current;
+    if (pivot) {
+      pivot.position.set(...pose.feet);
+      pivot.rotation.set(pose.tilt, pose.yaw, 0, "YXZ");
+    }
+    if (seatedLegsRef.current) seatedLegsRef.current.visible = !pose.straightLegs;
+    if (straightLegsRef.current) straightLegsRef.current.visible = pose.straightLegs;
+
     g.position.y = Math.sin(t * breathing) * 0.012;
     const swaySpeed = drunk >= 2 ? 0.45 : 0.7;
-    g.rotation.z = sleepy || vomiting ? 0 : Math.sin(t * swaySpeed) * SWAY_AMPLITUDE[drunk];
-    const lean = sleepy ? 0.35 : vomiting ? 0.5 + Math.sin(vomitAge / 90) * 0.04 : LEAN[drunk];
-    g.rotation.x = MathUtils.damp(g.rotation.x, lean, vomiting ? 8 : 3, delta);
+    const still = sleepy || vomiting || pose.lying || pose.straightLegs;
+    g.rotation.z = still ? 0 : Math.sin(t * swaySpeed) * SWAY_AMPLITUDE[drunk];
+    const lean = pose.straightLegs
+      ? pose.lean
+      : sleepy
+        ? 0.35
+        : vomiting
+          ? 0.5 + Math.sin(vomitAge / 90) * 0.04
+          : LEAN[drunk];
+    g.rotation.x = MathUtils.damp(g.rotation.x, lean, vomiting || pose.straightLegs ? 8 : 3, delta);
 
     // Dok priča, osmijeh se "otvara" u usta
     const mouth = mouthRef.current;
@@ -91,45 +119,67 @@ export default function Character({
       <Chair />
       <VomitStream startedAt={vomitStartedAt} />
 
-      {/* Noge */}
-      {[-0.1, 0.1].map((x) => (
-        <group key={x}>
-          <mesh position={[x, -0.42, 0.14]} rotation-x={PI / 2}>
-            <capsuleGeometry args={[0.075, 0.2, 4, 10]} />
-            <meshStandardMaterial color="#34405a" roughness={0.8} />
-          </mesh>
-          <mesh position={[x, -0.72, 0.3]}>
-            <capsuleGeometry args={[0.07, 0.42, 4, 10]} />
-            <meshStandardMaterial color="#34405a" roughness={0.8} />
-          </mesh>
-        </group>
-      ))}
+      {/* Tijelo se okreće oko stopala (penjanje na stol i pad na leđa) */}
+      <group ref={pivotRef} position={[0, -STAND_HEIGHT, 0]}>
+        <group position-y={STAND_HEIGHT}>
+          {/* Noge savijene na stolici */}
+          <group ref={seatedLegsRef}>
+            {[-0.1, 0.1].map((x) => (
+              <group key={x}>
+                <mesh position={[x, -0.42, 0.14]} rotation-x={PI / 2}>
+                  <capsuleGeometry args={[0.075, 0.2, 4, 10]} />
+                  <meshStandardMaterial color="#34405a" roughness={0.8} />
+                </mesh>
+                <mesh position={[x, -0.72, 0.3]}>
+                  <capsuleGeometry args={[0.07, 0.42, 4, 10]} />
+                  <meshStandardMaterial color="#34405a" roughness={0.8} />
+                </mesh>
+              </group>
+            ))}
+          </group>
+          {/* Ispružene noge (stoji na stolu ili leži) */}
+          <group ref={straightLegsRef} visible={false}>
+            {[-0.1, 0.1].map((x) => (
+              <group key={x}>
+                <mesh position={[x, -0.62, 0]}>
+                  <capsuleGeometry args={[0.075, 0.2, 4, 10]} />
+                  <meshStandardMaterial color="#34405a" roughness={0.8} />
+                </mesh>
+                <mesh position={[x, -0.95, 0.02]}>
+                  <capsuleGeometry args={[0.07, 0.42, 4, 10]} />
+                  <meshStandardMaterial color="#34405a" roughness={0.8} />
+                </mesh>
+              </group>
+            ))}
+          </group>
 
-      <group ref={upperRef}>
-        {/* Tijelo (žene malo užih ramena) */}
-        <mesh position={[0, -0.08, 0]}>
-          <capsuleGeometry args={[female ? 0.215 : 0.24, 0.36, 6, 16]} />
-          <meshStandardMaterial color={color} roughness={0.65} />
-        </mesh>
+          <group ref={upperRef}>
+            {/* Tijelo (žene malo užih ramena) */}
+            <mesh position={[0, -0.08, 0]}>
+              <capsuleGeometry args={[female ? 0.215 : 0.24, 0.36, 6, 16]} />
+              <meshStandardMaterial color={color} roughness={0.65} />
+            </mesh>
 
-        {/* Ruke, blago ispružene prema stolu */}
-        {[-1, 1].map((side) => (
-          <mesh key={side} position={[side * (female ? 0.26 : 0.28), 0.02, 0.12]} rotation={[0.9, 0, side * -0.25]}>
-            <capsuleGeometry args={[0.065, 0.3, 4, 10]} />
-            <meshStandardMaterial color={color} roughness={0.65} />
-          </mesh>
-        ))}
+            {/* Ruke, blago ispružene prema stolu */}
+            {[-1, 1].map((side) => (
+              <mesh key={side} position={[side * (female ? 0.26 : 0.28), 0.02, 0.12]} rotation={[0.9, 0, side * -0.25]}>
+                <capsuleGeometry args={[0.065, 0.3, 4, 10]} />
+                <meshStandardMaterial color={color} roughness={0.65} />
+              </mesh>
+            ))}
 
-        <group position={[0, 0.5, 0]}>
-          <mesh>
-            <sphereGeometry args={[HEAD_RADIUS, 24, 18]} />
-            <meshStandardMaterial color={skinColor} roughness={0.6} />
-          </mesh>
-          <Face look={look} skinColor={skinColor} drunk={drunk} mouthRef={mouthRef} />
-          <Hair look={look} />
-          <FacialHair look={look} />
-          {look.glasses && <Glasses />}
-          {look.beanie && <Beanie />}
+            <group position={[0, 0.5, 0]}>
+              <mesh>
+                <sphereGeometry args={[HEAD_RADIUS, 24, 18]} />
+                <meshStandardMaterial color={skinColor} roughness={0.6} />
+              </mesh>
+              <Face look={look} skinColor={skinColor} drunk={drunk} mouthRef={mouthRef} />
+              <Hair look={look} />
+              <FacialHair look={look} />
+              {look.glasses && <Glasses />}
+              {look.beanie && <Beanie />}
+            </group>
+          </group>
         </group>
       </group>
     </group>

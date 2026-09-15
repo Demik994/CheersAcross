@@ -3,6 +3,7 @@
 import type { ClientMessage, Peer, SignalData } from "@/lib/party/protocol";
 import type { DrunkLevel } from "@/lib/drunk";
 import { getContext } from "@/lib/sound";
+import { DRUNK_PITCH_PROCESSOR, loadDrunkPitch } from "./drunkPitch";
 
 /**
  * Glasovni chat kao "mreža" izravnih WebRTC veza (svaki preglednik sa svakim).
@@ -13,8 +14,8 @@ import { getContext } from "@/lib/sound";
  *   "pristojna" strana (veći id) popušta kad se ponude sudare.
  * - Signalizacija (SDP i ICE kandidati) ide preko real-time servera.
  * - Glasnoća svakog gosta mjeri se lokalno (AnalyserNode) za animaciju usta i prstena.
- * - Pijani glas: moj mikrofon prolazi kroz lanac koji "ljulja" visinu tona, prigušuje
- *   visoke tonove i malo izobličuje — to čuju ostali. Trijezan šalje sirovi mikrofon.
+ * - Pijani glas: visina mog glasa polako se njiše iz dubokog u visoko (što pijaniji,
+ *   to jače) — to čuju ostali. Trijezan šalje sirovi mikrofon.
  */
 
 type PeerLink = {
@@ -33,35 +34,20 @@ type PeerLink = {
 
 const LEVEL_INTERVAL_MS = 100;
 
-/** Parametri pijanog glasa po razini: titranje visine (s), brzina titranja (Hz), gornja granica tonova (Hz), izobličenje */
-const DRUNK_VOICE: Record<DrunkLevel, { depth: number; rate: number; cutoff: number; drive: number }> = {
-  0: { depth: 0, rate: 0.8, cutoff: 20000, drive: 0 },
-  1: { depth: 0.0015, rate: 0.9, cutoff: 9000, drive: 0 },
-  2: { depth: 0.004, rate: 0.65, cutoff: 5000, drive: 1.5 },
-  3: { depth: 0.007, rate: 0.5, cutoff: 3200, drive: 3 },
-  4: { depth: 0.009, rate: 0.4, cutoff: 2400, drive: 4 },
+/** Pijani glas po razini: najveći pomak visine (polutonovi) i brzina njihanja (Hz) — polako */
+const DRUNK_VOICE: Record<DrunkLevel, { depth: number; rate: number }> = {
+  0: { depth: 0, rate: 0.1 },
+  1: { depth: 2.5, rate: 0.1 },
+  2: { depth: 4.5, rate: 0.12 },
+  3: { depth: 6.5, rate: 0.15 },
+  4: { depth: 8, rate: 0.18 },
 };
 
 type DrunkChain = {
   source: MediaStreamAudioSourceNode;
-  delay: DelayNode;
-  lfo: OscillatorNode;
-  lfoGain: GainNode;
-  filter: BiquadFilterNode;
-  shaper: WaveShaperNode;
+  pitch: AudioWorkletNode;
   destination: MediaStreamAudioDestinationNode;
 };
-
-/** Mekano "zasićenje" — što veći drive, to mutniji glas */
-function saturationCurve(drive: number): Float32Array<ArrayBuffer> {
-  const curve = new Float32Array(new ArrayBuffer(1024 * 4));
-  const k = 1 + drive;
-  for (let i = 0; i < 1024; i++) {
-    const x = (i / 1023) * 2 - 1;
-    curve[i] = Math.tanh(k * x) / Math.tanh(k);
-  }
-  return curve;
-}
 
 const DEFAULT_ICE: RTCIceServer[] = [{ urls: ["stun:stun.cloudflare.com:3478"] }];
 
@@ -130,12 +116,8 @@ export class VoiceMesh {
     if (chain && ctx) {
       const p = DRUNK_VOICE[level];
       const now = ctx.currentTime;
-      chain.lfo.frequency.setTargetAtTime(p.rate, now, 0.3);
-      chain.lfoGain.gain.setTargetAtTime(p.depth, now, 0.3);
-      // Osnovno kašnjenje veće od amplitude titranja, da ne padne ispod nule
-      chain.delay.delayTime.setTargetAtTime(p.depth + 0.003, now, 0.3);
-      chain.filter.frequency.setTargetAtTime(p.cutoff, now, 0.3);
-      chain.shaper.curve = p.drive > 0 ? saturationCurve(p.drive) : null;
+      chain.pitch.parameters.get("depth")?.setTargetAtTime(p.depth, now, 1.5);
+      chain.pitch.parameters.get("rate")?.setTargetAtTime(p.rate, now, 0.5);
     }
     this.refreshOutgoing();
   }
@@ -307,28 +289,29 @@ export class VoiceMesh {
     }
   };
 
+  /** Procesor se učitava asinkrono; dok ne stigne (ili ga preglednik nema), šalje se sirovi mikrofon */
   private createDrunkChain(ctx: AudioContext, stream: MediaStream) {
-    const source = ctx.createMediaStreamSource(stream);
-    const delay = ctx.createDelay(0.05);
-    const lfo = ctx.createOscillator();
-    const lfoGain = ctx.createGain();
-    const filter = ctx.createBiquadFilter();
-    const shaper = ctx.createWaveShaper();
-    const destination = ctx.createMediaStreamDestination();
-
-    filter.type = "lowpass";
-    lfo.connect(lfoGain).connect(delay.delayTime);
-    source.connect(delay).connect(filter).connect(shaper).connect(destination);
-    lfo.start();
-    this.drunkChain = { source, delay, lfo, lfoGain, filter, shaper, destination };
+    void loadDrunkPitch(ctx).then((ok) => {
+      if (!ok || this.localStream !== stream || this.drunkChain) return;
+      const source = ctx.createMediaStreamSource(stream);
+      const pitch = new AudioWorkletNode(ctx, DRUNK_PITCH_PROCESSOR, {
+        numberOfInputs: 1,
+        numberOfOutputs: 1,
+        outputChannelCount: [1],
+      });
+      const destination = ctx.createMediaStreamDestination();
+      source.connect(pitch).connect(destination);
+      this.drunkChain = { source, pitch, destination };
+      this.setMuted(this.muted);
+      this.setDrunkLevel(this.drunkLevel);
+    });
   }
 
   private destroyDrunkChain() {
     const chain = this.drunkChain;
     if (!chain) return;
-    chain.lfo.stop();
     chain.source.disconnect();
-    chain.lfo.disconnect();
+    chain.pitch.disconnect();
     chain.destination.stream.getTracks().forEach((t) => t.stop());
     this.drunkChain = null;
   }
