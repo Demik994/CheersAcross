@@ -12,7 +12,13 @@ const geistMono = Geist_Mono({
   subsets: ["latin"],
 });
 
+// Apsolutni URL-ovi za pregled linka (og:image) — na Vercelu produkcijska domena, lokalno localhost
+const siteUrl = process.env.VERCEL_PROJECT_PRODUCTION_URL
+  ? `https://${process.env.VERCEL_PROJECT_PRODUCTION_URL}`
+  : "http://localhost:3000";
+
 export const metadata: Metadata = {
+  metadataBase: new URL(siteUrl),
   title: "CheersAcross — nazdravi na daljinu",
   description:
     "Virtualno nazdravljanje za rođendane, proslave i druženja na daljinu.",

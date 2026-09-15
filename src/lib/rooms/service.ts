@@ -134,6 +134,19 @@ export async function getRoomInfo(code: string) {
   return { code: room.code, hasPin: room.pin !== null, expiresAt: room.expiresAt };
 }
 
+/**
+ * Podaci za pregled linka (WhatsApp, Viber…). Ime domaćina samo za sobe bez PIN-a —
+ * zaštićena soba ne otkriva ništa osim da postoji.
+ */
+export async function getRoomInvite(code: string): Promise<{ hostName: string | null } | null> {
+  const store = getRoomStore();
+  const room = await store.getRoom(code);
+  if (!room) return null;
+  if (room.pin) return { hostName: null };
+  const host = (await store.getGuests(code)).find((g) => g.id === room.hostId);
+  return { hostName: host?.name ?? null };
+}
+
 export async function joinRoom(code: string, input: { name: unknown; pin?: unknown; avatar?: unknown; skin?: unknown }) {
   const store = getRoomStore();
   const room = await requireRoom(code);
