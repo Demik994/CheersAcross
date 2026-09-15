@@ -15,10 +15,10 @@ export type DrunkLevel = 0 | 1 | 2 | 3 | 4;
 
 export const DRUNK_LEVELS: { min: number; label: string; emoji: string }[] = [
   { min: 0, label: "trijezan", emoji: "🙂" },
-  { min: 3, label: "pripit", emoji: "😊" },
-  { min: 5, label: "pijan", emoji: "🥴" },
-  { min: 8, label: "jako pijan", emoji: "😵" },
-  { min: 10, label: "povraća", emoji: "🤢" },
+  { min: 1.5, label: "pripit", emoji: "😊" },
+  { min: 2.5, label: "pijan", emoji: "🥴" },
+  { min: 4, label: "jako pijan", emoji: "😵" },
+  { min: 5, label: "povraća", emoji: "🤢" },
 ];
 
 /** Od ove razine lik povraća nakon runde */
