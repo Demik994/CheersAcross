@@ -42,7 +42,43 @@ export type LiveSnapshot = {
   round: number;
   /** Domaćin bira u kojoj se zdravici otkriva slika slavlja (samo u toj jednoj) */
   photoRound: number;
+  /** YouTube glazba: što svira i red pjesama */
+  music: MusicState;
+  /** Vrijeme servera (ms) u trenutku slanja — za usklađivanje glazbe s lokalnim satom */
+  serverTime: number;
 };
+
+export type MusicTrack = {
+  /** jedinstven unutar sobe */
+  id: string;
+  videoId: string;
+  title: string;
+  addedBy: string;
+};
+
+export type MusicState = {
+  current: {
+    track: MusicTrack;
+    /** ms (vrijeme servera) kad bi pjesma bila na 0:00 — dok svira */
+    startedAt: number | null;
+    /** sekunde na kojima je pauzirano — dok je pauzirano */
+    pausedAt: number | null;
+  } | null;
+  queue: MusicTrack[];
+};
+
+export type MusicAction =
+  /** svi: dodaj pjesmu u red (YouTube link) */
+  | { action: "add"; url: string }
+  /** domaćin: pusti odmah pjesmu iz reda */
+  | { action: "play"; trackId: string }
+  | { action: "pause" }
+  | { action: "resume" }
+  | { action: "skip" }
+  /** domaćin ili tko je dodao: makni iz reda */
+  | { action: "remove"; trackId: string }
+  /** bilo koji preglednik: pjesma je završila (server prelazi na sljedeću samo jednom) */
+  | { action: "ended"; trackId: string };
 
 export type Peer = {
   /** id konekcije (PartySocket id) — adresa za WebRTC signalizaciju */
@@ -80,7 +116,10 @@ export type Clink = {
 
 export type Kicked = { type: "kicked" };
 
-export type ServerMessage = LiveSnapshot | GlassMoved | Clink | Kicked | ChatMessage | SignalMessage;
+/** Samo pošiljatelju: pjesmu nije moguće dodati */
+export type MusicError = { type: "music-error"; message: string };
+
+export type ServerMessage = LiveSnapshot | GlassMoved | Clink | Kicked | ChatMessage | SignalMessage | MusicError;
 
 // ---------- preglednik -> server ----------
 
@@ -93,6 +132,7 @@ export type ClientMessage =
   /** Samo domaćin: nakon koje zdravice se otkriva slika */
   | { type: "settings"; photoRound: number }
   | { type: "voice"; mic: boolean; muted: boolean }
+  | ({ type: "music" } & MusicAction)
   | { type: "signal"; to: string; data: SignalData };
 
 // ---------- Next.js -> server (HTTP, potpisano tajnom) ----------
@@ -101,6 +141,11 @@ export type RoomUpdate = { type: "room"; state: RoomState };
 
 /** Čaše se ne mogu odvući izvan ploče stola */
 export const MAX_GLASS_RADIUS = 1.6;
+
+/** Najviše pjesama u redu */
+export const MUSIC_QUEUE_LIMIT = 30;
+/** Isti gost može dodati pjesmu najviše jednom u ovoliko ms */
+export const MUSIC_ADD_INTERVAL_MS = 3000;
 
 /** Najveći izbor za "sliku nakon N. zdravice" */
 export const MAX_PHOTO_ROUND = 20;

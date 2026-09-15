@@ -11,11 +11,15 @@ import {
   CHAT_MIN_INTERVAL_MS,
   MAX_GLASS_RADIUS,
   MAX_PHOTO_ROUND,
+  MUSIC_ADD_INTERVAL_MS,
+  MUSIC_QUEUE_LIMIT,
   PARTY_NAME,
   sanitizeChat,
   type ClientMessage,
   type GlassPosition,
   type LiveSnapshot,
+  type MusicAction,
+  type MusicState,
   type Peer,
   type RoomUpdate,
   type ServerMessage,
@@ -23,6 +27,7 @@ import {
 } from "../../src/lib/party/protocol";
 import { verifyTicket } from "../../src/lib/party/ticket";
 import { VOMIT_LEVEL, afterDrinking, drunkLevel } from "../../src/lib/drunk";
+import { parseYouTubeId, youTubeWatchUrl } from "../../src/lib/youtube";
 import type { RoomState } from "../../src/lib/rooms/types";
 
 type ConnectionState = { guestId: string; mic?: boolean; muted?: boolean };
@@ -60,11 +65,13 @@ export class ToastRoom extends Server<Env> {
   private vomiting: string[] = [];
   private round = 0;
   private photoRound = 1;
+  private music: MusicState = { current: null, queue: [] };
 
   private held = new Map<string, GlassPosition>();
   private touching = new Set<string>();
   private lastClinkAt = new Map<string, number>();
   private lastChatAt = new Map<string, number>();
+  private lastMusicAddAt = new Map<string, number>();
 
   async onStart() {
     const stored = await this.ctx.storage.get<unknown>([
@@ -76,6 +83,7 @@ export class ToastRoom extends Server<Env> {
       "vomiting",
       "round",
       "photoRound",
+      "music",
     ]);
     this.room = (stored.get("room") as RoomState | undefined) ?? null;
     this.ready = new Set((stored.get("ready") as string[] | undefined) ?? []);
@@ -85,6 +93,7 @@ export class ToastRoom extends Server<Env> {
     this.vomiting = (stored.get("vomiting") as string[] | undefined) ?? [];
     this.round = (stored.get("round") as number | undefined) ?? 0;
     this.photoRound = (stored.get("photoRound") as number | undefined) ?? 1;
+    this.music = (stored.get("music") as MusicState | undefined) ?? { current: null, queue: [] };
   }
 
   getConnectionTags(_connection: Connection, ctx: ConnectionContext) {
@@ -160,6 +169,10 @@ export class ToastRoom extends Server<Env> {
         this.photoRound = Math.min(MAX_PHOTO_ROUND, Math.max(1, value));
         await this.persist();
         this.broadcastSnapshot();
+        return;
+      }
+      case "music": {
+        await this.handleMusic(connection, guestId, message);
         return;
       }
       case "voice": {
@@ -253,6 +266,7 @@ export class ToastRoom extends Server<Env> {
     this.vomiting = [];
     this.round = 0;
     this.photoRound = 1;
+    this.music = { current: null, queue: [] };
   }
 
   // ---------- kucanje ----------
@@ -303,6 +317,88 @@ export class ToastRoom extends Server<Env> {
     const before = this.clinked.size;
     this.clinked.add(a).add(b);
     return this.clinked.size !== before;
+  }
+
+  // ---------- glazba (YouTube) ----------
+
+  private async handleMusic(connection: GuestConnection, guestId: string, message: MusicAction) {
+    const isHost = guestId === this.room?.hostId;
+    const now = Date.now();
+    const music = this.music;
+    const current = music.current;
+
+    switch (message.action) {
+      case "add": {
+        if (now - (this.lastMusicAddAt.get(guestId) ?? 0) < MUSIC_ADD_INTERVAL_MS) return;
+        if (music.queue.length >= MUSIC_QUEUE_LIMIT) {
+          this.send(connection, { type: "music-error", message: `Red je pun (najviše ${MUSIC_QUEUE_LIMIT} pjesama).` });
+          return;
+        }
+        const videoId = typeof message.url === "string" ? parseYouTubeId(message.url) : null;
+        if (!videoId) {
+          this.send(connection, { type: "music-error", message: "To nije ispravan YouTube link." });
+          return;
+        }
+        this.lastMusicAddAt.set(guestId, now);
+        const title = await fetchYouTubeTitle(videoId);
+        if (title === null) {
+          this.send(connection, { type: "music-error", message: "Taj video ne postoji ili se ne smije puštati izvan YouTubea." });
+          return;
+        }
+        const track = { id: crypto.randomUUID().slice(0, 8), videoId, title, addedBy: guestId };
+        // Ništa ne svira — kreni odmah
+        if (!current) music.current = { track, startedAt: now, pausedAt: null };
+        else music.queue.push(track);
+        break;
+      }
+      case "play": {
+        if (!isHost) return;
+        const index = music.queue.findIndex((t) => t.id === message.trackId);
+        if (index < 0) return;
+        const [track] = music.queue.splice(index, 1);
+        music.current = { track, startedAt: now, pausedAt: null };
+        break;
+      }
+      case "pause": {
+        if (!isHost || !current || current.startedAt === null) return;
+        current.pausedAt = Math.max(0, (now - current.startedAt) / 1000);
+        current.startedAt = null;
+        break;
+      }
+      case "resume": {
+        if (!isHost || !current || current.pausedAt === null) return;
+        current.startedAt = now - current.pausedAt * 1000;
+        current.pausedAt = null;
+        break;
+      }
+      case "skip": {
+        if (!isHost) return;
+        this.playNext(now);
+        break;
+      }
+      case "ended": {
+        // Više preglednika javi kraj iste pjesme — prelazimo samo jednom
+        if (!current || current.track.id !== message.trackId) return;
+        this.playNext(now);
+        break;
+      }
+      case "remove": {
+        const track = music.queue.find((t) => t.id === message.trackId);
+        if (!track || (!isHost && track.addedBy !== guestId)) return;
+        music.queue = music.queue.filter((t) => t.id !== message.trackId);
+        break;
+      }
+      default:
+        return;
+    }
+
+    await this.persist();
+    this.broadcastSnapshot();
+  }
+
+  private playNext(now: number) {
+    const next = this.music.queue.shift();
+    this.music.current = next ? { track: next, startedAt: now, pausedAt: null } : null;
   }
 
   private resetRound() {
@@ -357,6 +453,7 @@ export class ToastRoom extends Server<Env> {
       vomiting: this.vomiting,
       round: this.round,
       photoRound: this.photoRound,
+      music: this.music,
     });
   }
 
@@ -393,6 +490,8 @@ export class ToastRoom extends Server<Env> {
       peers: this.peers(excludeConnectionId),
       round: this.round,
       photoRound: this.photoRound,
+      music: this.music,
+      serverTime: Date.now(),
     };
     this.broadcastMessage(snapshot);
   }
@@ -403,6 +502,22 @@ export class ToastRoom extends Server<Env> {
 
   private send(connection: Connection, message: ServerMessage) {
     connection.send(JSON.stringify(message));
+  }
+}
+
+/**
+ * Naslov videa preko YouTube oEmbeda (bez API ključa). null = video ne postoji ili
+ * vlasnik ne dopušta ugradnju; kod mrežne greške pustimo ga s općim naslovom.
+ */
+async function fetchYouTubeTitle(videoId: string): Promise<string | null> {
+  try {
+    const res = await fetch(`https://www.youtube.com/oembed?format=json&url=${encodeURIComponent(youTubeWatchUrl(videoId))}`);
+    if ([400, 401, 403, 404].includes(res.status)) return null;
+    if (!res.ok) return "YouTube video";
+    const data = (await res.json()) as { title?: unknown };
+    return typeof data.title === "string" && data.title.trim() ? data.title.trim().slice(0, 120) : "YouTube video";
+  } catch {
+    return "YouTube video";
   }
 }
 

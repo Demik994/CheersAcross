@@ -8,6 +8,8 @@ import {
   PARTY_NAME,
   type ClientMessage,
   type GlassPosition,
+  type MusicAction,
+  type MusicState,
   type Peer,
   type ServerMessage,
   type SignalData,
@@ -37,7 +39,11 @@ export type LiveInfo = {
   round: number;
   /** U kojoj se zdravici otkriva slika slavlja */
   photoRound: number;
+  /** YouTube glazba */
+  music: MusicState;
 };
+
+const NO_MUSIC: MusicState = { current: null, queue: [] };
 
 /** Zadnja poruka svakog gosta koja se trenutno prikazuje u oblačiću */
 export type ChatBubbles = ReadonlyMap<string, { text: string; id: number }>;
@@ -70,6 +76,9 @@ export function useLiveRoom(code: string, session: GuestSession) {
   const bubbleCounter = useRef(0);
   /** Glasovni chat se ovdje "pretplati" na WebRTC signalizaciju */
   const signalHandler = useRef<SignalHandler | null>(null);
+  /** vrijeme servera − lokalno vrijeme (ms); glazba iz ovoga računa poziciju pjesme */
+  const serverOffset = useRef(0);
+  const [musicError, setMusicError] = useState<{ message: string; id: number } | null>(null);
 
   const handleAuthError = useCallback(
     (err: unknown) => {
@@ -135,6 +144,7 @@ export function useLiveRoom(code: string, session: GuestSession) {
       switch (message.type) {
         case "sync": {
           if (message.room) apply(message.room);
+          if (typeof message.serverTime === "number") serverOffset.current = message.serverTime - Date.now();
           setLive({
             online: new Set(message.online),
             ready: new Set(message.ready),
@@ -146,6 +156,7 @@ export function useLiveRoom(code: string, session: GuestSession) {
             peers: message.peers ?? [],
             round: message.round ?? 0,
             photoRound: message.photoRound ?? 1,
+            music: message.music ?? NO_MUSIC,
           });
 
           const previous = lastPhase.current;
@@ -190,6 +201,9 @@ export function useLiveRoom(code: string, session: GuestSession) {
         case "signal":
           signalHandler.current?.(message.from, message.data);
           return;
+        case "music-error":
+          setMusicError({ message: message.message, id: Date.now() });
+          return;
         case "kicked":
           clearSession(code);
           return;
@@ -209,6 +223,8 @@ export function useLiveRoom(code: string, session: GuestSession) {
   const startNewRound = useCallback(() => send({ type: "reset" }), [send]);
   const sendChat = useCallback((text: string) => send({ type: "chat", text }), [send]);
   const setPhotoRound = useCallback((photoRound: number) => send({ type: "settings", photoRound }), [send]);
+  const sendMusic = useCallback((action: MusicAction) => send({ type: "music", ...action }), [send]);
+  const clearMusicError = useCallback(() => setMusicError(null), []);
   const registerSignalHandler = useCallback((handler: SignalHandler | null) => {
     signalHandler.current = handler;
   }, []);
@@ -225,6 +241,10 @@ export function useLiveRoom(code: string, session: GuestSession) {
     startNewRound,
     sendChat,
     setPhotoRound,
+    sendMusic,
+    musicError,
+    clearMusicError,
+    serverOffset,
     bubbles,
     send,
     registerSignalHandler,

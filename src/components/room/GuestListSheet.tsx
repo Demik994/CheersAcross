@@ -11,12 +11,13 @@ type Props = {
   isHost: boolean;
   live: LiveInfo | null;
   onKick: (guest: PublicGuest) => Promise<void>;
+  onChangeLook?: () => void;
   onLeave: () => void;
   onClose: () => void;
 };
 
 /** Popis gostiju: tko je spojen, tko je spreman; domaćin može ukloniti gosta */
-export default function GuestListSheet({ guests, meId, isHost, live, onKick, onLeave, onClose }: Props) {
+export default function GuestListSheet({ guests, meId, isHost, live, onKick, onChangeLook, onLeave, onClose }: Props) {
   const [busyId, setBusyId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
@@ -97,13 +98,24 @@ export default function GuestListSheet({ guests, meId, isHost, live, onKick, onL
             {error}
           </p>
         )}
-        <button
-          type="button"
-          onClick={onLeave}
-          className="mt-3 h-11 w-full rounded-xl border border-white/15 text-sm font-semibold text-foreground/80 active:bg-white/10"
-        >
-          🚪 Izađi iz sobe
-        </button>
+        <div className="mt-3 flex gap-2">
+          {onChangeLook && (
+            <button
+              type="button"
+              onClick={onChangeLook}
+              className="h-11 flex-1 rounded-xl border border-white/15 text-sm font-semibold text-foreground/80 active:bg-white/10"
+            >
+              🧑 Promijeni lik
+            </button>
+          )}
+          <button
+            type="button"
+            onClick={onLeave}
+            className="h-11 flex-1 rounded-xl border border-white/15 text-sm font-semibold text-foreground/80 active:bg-white/10"
+          >
+            🚪 Izađi iz sobe
+          </button>
+        </div>
 
         {isHost && (
           <p className="mt-3 text-xs text-foreground/45">

@@ -21,6 +21,8 @@ import AvatarSheet from "./AvatarSheet";
 import ChatInput from "./ChatInput";
 import GuestListSheet from "./GuestListSheet";
 import InviteButton from "./InviteButton";
+import MusicSheet from "./MusicSheet";
+import MusicTv from "./MusicTv";
 import PhotoRoundPicker from "./PhotoRoundPicker";
 import { FullscreenMessage } from "./RoomClient";
 import RoomGone from "./RoomGone";
@@ -46,6 +48,10 @@ export default function RoomView({ code, session }: { code: string; session: Gue
     startNewRound,
     sendChat,
     setPhotoRound,
+    sendMusic,
+    musicError,
+    clearMusicError,
+    serverOffset,
     bubbles,
     send,
     registerSignalHandler,
@@ -71,6 +77,7 @@ export default function RoomView({ code, session }: { code: string; session: Gue
   const [actionError, setActionError] = useState<string | null>(null);
   const [guestListOpen, setGuestListOpen] = useState(false);
   const [avatarOpen, setAvatarOpen] = useState(false);
+  const [musicOpen, setMusicOpen] = useState(false);
 
   // Token više ne vrijedi (gost je uklonjen ili je izašao na drugom tabu) — natrag na formu za ulazak
   useEffect(() => {
@@ -119,6 +126,7 @@ export default function RoomView({ code, session }: { code: string; session: Gue
   const inLobby = live === null || live.phase === "lobby";
   const myIntoxication = live?.intoxication.get(meId) ?? 0;
   const myLevel = drunkLevel(myIntoxication);
+  const musicPlaying = live?.music.current != null;
 
   async function changeDrink(drink: DrinkId) {
     setActionError(null);
@@ -210,16 +218,17 @@ export default function RoomView({ code, session }: { code: string; session: Gue
         </button>
         <div className="flex items-center gap-2">
           <InviteButton code={code} />
-          {me && (
-            <button
-              type="button"
-              onClick={() => setAvatarOpen(true)}
-              aria-label="Promijeni svoj lik"
-              className="pointer-events-auto flex size-10 items-center justify-center rounded-full bg-stone-900/75 text-lg shadow-lg backdrop-blur active:bg-stone-800"
-            >
-              🧑
-            </button>
-          )}
+          <button
+            type="button"
+            onClick={() => setMusicOpen(true)}
+            aria-label={musicPlaying ? "Glazba (svira)" : "Glazba"}
+            className={`pointer-events-auto relative flex size-10 items-center justify-center rounded-full text-lg shadow-lg backdrop-blur ${
+              musicPlaying ? "bg-amber-400/30 active:bg-amber-400/40" : "bg-stone-900/75 active:bg-stone-800"
+            }`}
+          >
+            🎵
+            {musicPlaying && <span className="absolute top-1 right-1 size-2 animate-pulse rounded-full bg-amber-300" aria-hidden />}
+          </button>
           {voiceMode === "mic" && voice.micOn ? (
             <button
               type="button"
@@ -244,6 +253,17 @@ export default function RoomView({ code, session }: { code: string; session: Gue
           )}
         </div>
       </header>
+
+      {live && (
+        <MusicTv
+          music={live.music}
+          serverOffset={serverOffset}
+          voiceLevels={voice.levels}
+          isHost={isHost}
+          onEnded={(trackId) => sendMusic({ action: "ended", trackId })}
+          onOpen={() => setMusicOpen(true)}
+        />
+      )}
 
       <section className="pointer-events-none absolute inset-x-0 bottom-0 z-10 bg-gradient-to-t from-background via-background/90 to-transparent px-4 pt-10 pb-[max(1rem,env(safe-area-inset-bottom))]">
         {/* pointer-events samo na kontrolama, da se čaša može vući i iza gradijenta */}
@@ -315,6 +335,20 @@ export default function RoomView({ code, session }: { code: string; session: Gue
         />
       )}
 
+      {musicOpen && live && (
+        <MusicSheet
+          music={live.music}
+          guests={state.guests}
+          meId={meId}
+          isHost={isHost}
+          connected={connected}
+          serverError={musicError}
+          onAction={sendMusic}
+          onClearError={clearMusicError}
+          onClose={() => setMusicOpen(false)}
+        />
+      )}
+
       {guestListOpen && (
         <GuestListSheet
           guests={state.guests}
@@ -322,6 +356,14 @@ export default function RoomView({ code, session }: { code: string; session: Gue
           isHost={isHost}
           live={live}
           onKick={kick}
+          onChangeLook={
+            me
+              ? () => {
+                  setGuestListOpen(false);
+                  setAvatarOpen(true);
+                }
+              : undefined
+          }
           onLeave={() => void leave()}
           onClose={() => setGuestListOpen(false)}
         />
