@@ -49,7 +49,8 @@ export default function GuestSeat({ guest, angle, isMe, offline, badge, showLabe
 
       {showLabel && (
       <Html
-        position={[0, TABLE_TOP_Y + 0.92, SEAT_RADIUS + 0.05]}
+        // Svoju oznaku gledam s leđa lika — pomaknuta je u stranu da ne skriva moju (možda sitnu) čašu
+        position={isMe ? [-0.62, TABLE_TOP_Y + 0.55, SEAT_RADIUS + 0.1] : [0, TABLE_TOP_Y + 0.92, SEAT_RADIUS + 0.05]}
         center
         zIndexRange={[5, 0]}
         style={{ pointerEvents: "none" }}

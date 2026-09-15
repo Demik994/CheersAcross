@@ -1,6 +1,6 @@
 import "server-only";
 import { createHash, randomBytes, randomUUID, scryptSync, timingSafeEqual } from "node:crypto";
-import { DEFAULT_DRINK, isDrinkId, type DrinkId } from "@/lib/drinks";
+import { DEFAULT_DRINK, isDrinkId, normalizeDrinkId, type DrinkId } from "@/lib/drinks";
 import { generateRoomCode } from "./codes";
 import { getRoomStore } from "./store";
 import {
@@ -167,7 +167,8 @@ export function toRoomState(room: RoomRecord, guests: GuestRecord[]): RoomState 
     hostId: room.hostId,
     guests: guests
       .sort((a, b) => a.joinedAt - b.joinedAt)
-      .map((g) => ({ id: g.id, name: g.name, drink: g.drink, color: g.color, isHost: g.id === room.hostId })),
+      // normalizeDrinkId: gosti spremljeni prije menija pića imaju stare oznake (npr. "wine")
+      .map((g) => ({ id: g.id, name: g.name, drink: normalizeDrinkId(g.drink), color: g.color, isHost: g.id === room.hostId })),
   };
 }
 

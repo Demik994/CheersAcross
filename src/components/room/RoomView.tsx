@@ -3,7 +3,7 @@
 import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 import SceneLoader from "@/components/scene/SceneLoader";
-import DrinkPicker from "@/components/ui/DrinkPicker";
+import DrinkMenu from "@/components/ui/DrinkMenu";
 import PhotoUpload from "@/components/ui/PhotoUpload";
 import { useLiveRoom } from "@/hooks/useLiveRoom";
 import type { DrinkId } from "@/lib/drinks";
@@ -172,7 +172,7 @@ export default function RoomView({ code, session }: { code: string; session: Gue
             onNewRound={startNewRound}
           />
 
-          {inLobby && me && <DrinkPicker value={me.drink} onChange={(d) => void changeDrink(d)} />}
+          {inLobby && me && <DrinkMenu value={me.drink} onChange={(d) => void changeDrink(d)} />}
 
           {inLobby && isHost && (
             // Slika ostaje skrivena gostima dok se svi ne kucnu
