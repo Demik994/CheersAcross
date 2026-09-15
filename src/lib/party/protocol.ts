@@ -38,6 +38,10 @@ export type LiveSnapshot = {
   vomiting: string[];
   /** Spojeni preglednici (jedan gost može imati više tabova) i njihov način razgovora */
   peers: Peer[];
+  /** Broj završenih zdravica u sobi (1 = prva je gotova) */
+  round: number;
+  /** Domaćin bira u kojoj se zdravici otkriva slika slavlja (samo u toj jednoj) */
+  photoRound: number;
 };
 
 export type Peer = {
@@ -86,6 +90,8 @@ export type ClientMessage =
   /** Samo domaćin: nova runda nazdravljanja */
   | { type: "reset" }
   | { type: "chat"; text: string }
+  /** Samo domaćin: nakon koje zdravice se otkriva slika */
+  | { type: "settings"; photoRound: number }
   | { type: "voice"; mic: boolean; muted: boolean }
   | { type: "signal"; to: string; data: SignalData };
 
@@ -95,6 +101,9 @@ export type RoomUpdate = { type: "room"; state: RoomState };
 
 /** Čaše se ne mogu odvući izvan ploče stola */
 export const MAX_GLASS_RADIUS = 1.6;
+
+/** Najveći izbor za "sliku nakon N. zdravice" */
+export const MAX_PHOTO_ROUND = 20;
 
 /** Najdulja poruka u oblačiću — 2–3 kratka retka na mobitelu, čitljivo preko stola */
 export const CHAT_MAX_LENGTH = 80;

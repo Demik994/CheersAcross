@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
+import type { DrunkLevel } from "@/lib/drunk";
 import type { ClientMessage, Peer } from "@/lib/party/protocol";
 import { roomApi } from "@/lib/roomApi";
 import type { GuestSession } from "@/lib/rooms/types";
@@ -14,6 +15,8 @@ type Options = {
   /** null dok gost nije odabrao način */
   mode: VoiceMode | null;
   muted: boolean;
+  /** Moja razina pijanstva — iskrivljuje glas koji čuju ostali */
+  drunkLevel: DrunkLevel;
   connected: boolean;
   connectionId: string;
   peers: readonly Peer[];
@@ -29,7 +32,18 @@ function micErrorMessage(err: unknown) {
   return "Mikrofon nije dostupan.";
 }
 
-export function useVoiceChat({ code, session, mode, muted, connected, connectionId, peers, send, registerSignalHandler }: Options) {
+export function useVoiceChat({
+  code,
+  session,
+  mode,
+  muted,
+  drunkLevel,
+  connected,
+  connectionId,
+  peers,
+  send,
+  registerSignalHandler,
+}: Options) {
   const [mesh] = useState(() => new VoiceMesh());
   const [micStream, setMicStream] = useState<MediaStream | null>(null);
   const [micError, setMicError] = useState<string | null>(null);
@@ -104,6 +118,10 @@ export function useVoiceChat({ code, session, mode, muted, connected, connection
   useEffect(() => {
     mesh.setMuted(muted);
   }, [mesh, muted]);
+
+  useEffect(() => {
+    mesh.setDrunkLevel(drunkLevel);
+  }, [mesh, drunkLevel]);
 
   // Javi ostalima imam li mikrofon (i jesam li utišan) — i nakon svakog ponovnog spajanja
   useEffect(() => {

@@ -1,6 +1,7 @@
 "use client";
 
 import type { ClientMessage, Peer, SignalData } from "@/lib/party/protocol";
+import type { DrunkLevel } from "@/lib/drunk";
 import { getContext } from "@/lib/sound";
 
 /**
@@ -12,10 +13,14 @@ import { getContext } from "@/lib/sound";
  *   "pristojna" strana (veći id) popušta kad se ponude sudare.
  * - Signalizacija (SDP i ICE kandidati) ide preko real-time servera.
  * - Glasnoća svakog gosta mjeri se lokalno (AnalyserNode) za animaciju usta i prstena.
+ * - Pijani glas: moj mikrofon prolazi kroz lanac koji "ljulja" visinu tona, prigušuje
+ *   visoke tonove i malo izobličuje — to čuju ostali. Trijezan šalje sirovi mikrofon.
  */
 
 type PeerLink = {
   pc: RTCPeerConnection;
+  /** Pošiljatelj mog mikrofona na ovoj vezi (null dok nemam mikrofon) */
+  sender: RTCRtpSender | null;
   guestId: string;
   /** pristojna strana popušta pri sudaru ponuda */
   polite: boolean;
@@ -27,6 +32,37 @@ type PeerLink = {
 };
 
 const LEVEL_INTERVAL_MS = 100;
+
+/** Parametri pijanog glasa po razini: titranje visine (s), brzina titranja (Hz), gornja granica tonova (Hz), izobličenje */
+const DRUNK_VOICE: Record<DrunkLevel, { depth: number; rate: number; cutoff: number; drive: number }> = {
+  0: { depth: 0, rate: 0.8, cutoff: 20000, drive: 0 },
+  1: { depth: 0.0015, rate: 0.9, cutoff: 9000, drive: 0 },
+  2: { depth: 0.004, rate: 0.65, cutoff: 5000, drive: 1.5 },
+  3: { depth: 0.007, rate: 0.5, cutoff: 3200, drive: 3 },
+  4: { depth: 0.009, rate: 0.4, cutoff: 2400, drive: 4 },
+};
+
+type DrunkChain = {
+  source: MediaStreamAudioSourceNode;
+  delay: DelayNode;
+  lfo: OscillatorNode;
+  lfoGain: GainNode;
+  filter: BiquadFilterNode;
+  shaper: WaveShaperNode;
+  destination: MediaStreamAudioDestinationNode;
+};
+
+/** Mekano "zasićenje" — što veći drive, to mutniji glas */
+function saturationCurve(drive: number): Float32Array<ArrayBuffer> {
+  const curve = new Float32Array(new ArrayBuffer(1024 * 4));
+  const k = 1 + drive;
+  for (let i = 0; i < 1024; i++) {
+    const x = (i / 1023) * 2 - 1;
+    curve[i] = Math.tanh(k * x) / Math.tanh(k);
+  }
+  return curve;
+}
+
 const DEFAULT_ICE: RTCIceServer[] = [{ urls: ["stun:stun.cloudflare.com:3478"] }];
 
 export class VoiceMesh {
@@ -40,6 +76,8 @@ export class VoiceMesh {
   private localSource: MediaStreamAudioSourceNode | null = null;
   private localAnalyser: AnalyserNode | null = null;
   private muted = false;
+  private drunkLevel: DrunkLevel = 0;
+  private drunkChain: DrunkChain | null = null;
   private myId = "";
   private myGuestId = "";
   private send: (message: ClientMessage) => void = () => {};
@@ -68,6 +106,8 @@ export class VoiceMesh {
     this.localSource?.disconnect();
     this.localSource = null;
     this.localAnalyser = null;
+    this.destroyDrunkChain();
+    getContext()?.removeEventListener("statechange", this.refreshOutgoing);
     this.levels.clear();
   }
 
@@ -79,6 +119,25 @@ export class VoiceMesh {
     this.muted = muted;
     // Utišavanje bez ponovnog pregovaranja: staza ostaje, samo šalje tišinu
     this.localStream?.getAudioTracks().forEach((track) => (track.enabled = !muted));
+    this.drunkChain?.destination.stream.getAudioTracks().forEach((track) => (track.enabled = !muted));
+  }
+
+  /** Moja razina pijanstva — mijenja glas koji čuju ostali (bez ponovnog pregovaranja) */
+  setDrunkLevel(level: DrunkLevel) {
+    this.drunkLevel = level;
+    const chain = this.drunkChain;
+    const ctx = getContext();
+    if (chain && ctx) {
+      const p = DRUNK_VOICE[level];
+      const now = ctx.currentTime;
+      chain.lfo.frequency.setTargetAtTime(p.rate, now, 0.3);
+      chain.lfoGain.gain.setTargetAtTime(p.depth, now, 0.3);
+      // Osnovno kašnjenje veće od amplitude titranja, da ne padne ispod nule
+      chain.delay.delayTime.setTargetAtTime(p.depth + 0.003, now, 0.3);
+      chain.filter.frequency.setTargetAtTime(p.cutoff, now, 0.3);
+      chain.shaper.curve = p.drive > 0 ? saturationCurve(p.drive) : null;
+    }
+    this.refreshOutgoing();
   }
 
   setLocalStream(stream: MediaStream | null) {
@@ -86,14 +145,19 @@ export class VoiceMesh {
     this.localSource?.disconnect();
     this.localSource = null;
     this.localAnalyser = null;
+    this.destroyDrunkChain();
     const ctx = getContext();
     if (stream && ctx) {
       this.localSource = ctx.createMediaStreamSource(stream);
       this.localAnalyser = ctx.createAnalyser();
       this.localAnalyser.fftSize = 512;
       this.localSource.connect(this.localAnalyser);
+      this.createDrunkChain(ctx, stream);
+      ctx.removeEventListener("statechange", this.refreshOutgoing);
+      ctx.addEventListener("statechange", this.refreshOutgoing);
     }
     this.setMuted(this.muted);
+    this.setDrunkLevel(this.drunkLevel);
     for (const link of this.links.values()) this.syncTracks(link);
     this.syncPeers(this.peers);
   }
@@ -160,6 +224,7 @@ export class VoiceMesh {
     const pc = new RTCPeerConnection({ iceServers: this.iceServers });
     const link: PeerLink = {
       pc,
+      sender: null,
       guestId,
       polite: this.myId > peerId,
       makingOffer: false,
@@ -213,15 +278,59 @@ export class VoiceMesh {
 
   /** Dodaj ili makni moj mikrofon na vezi (okida ponovno pregovaranje) */
   private syncTracks(link: PeerLink) {
-    const senders = link.pc.getSenders();
     const stream = this.localStream;
-    if (stream) {
-      for (const track of stream.getAudioTracks()) {
-        if (!senders.some((s) => s.track === track)) link.pc.addTrack(track, stream);
-      }
-    } else {
-      for (const sender of senders) if (sender.track) link.pc.removeTrack(sender);
+    const track = this.outgoingTrack();
+    if (stream && track && !link.sender) {
+      link.sender = link.pc.addTrack(track, stream);
+    } else if (!stream && link.sender) {
+      link.pc.removeTrack(link.sender);
+      link.sender = null;
     }
+  }
+
+  /** Što šaljem: obrađeni "pijani" glas ako sam pijan i zvuk radi, inače sirovi mikrofon */
+  private outgoingTrack(): MediaStreamTrack | null {
+    const raw = this.localStream?.getAudioTracks()[0] ?? null;
+    const processed = this.drunkChain?.destination.stream.getAudioTracks()[0] ?? null;
+    const audioRunning = getContext()?.state === "running";
+    return this.drunkLevel > 0 && processed && audioRunning ? processed : raw;
+  }
+
+  /** Zamijeni stazu na svim vezama bez ponovnog pregovaranja */
+  private refreshOutgoing = () => {
+    const track = this.outgoingTrack();
+    if (!track) return;
+    for (const link of this.links.values()) {
+      if (link.sender && link.sender.track !== track) {
+        link.sender.replaceTrack(track).catch((err) => console.warn("Glasovni chat: zamjena staze nije uspjela", err));
+      }
+    }
+  };
+
+  private createDrunkChain(ctx: AudioContext, stream: MediaStream) {
+    const source = ctx.createMediaStreamSource(stream);
+    const delay = ctx.createDelay(0.05);
+    const lfo = ctx.createOscillator();
+    const lfoGain = ctx.createGain();
+    const filter = ctx.createBiquadFilter();
+    const shaper = ctx.createWaveShaper();
+    const destination = ctx.createMediaStreamDestination();
+
+    filter.type = "lowpass";
+    lfo.connect(lfoGain).connect(delay.delayTime);
+    source.connect(delay).connect(filter).connect(shaper).connect(destination);
+    lfo.start();
+    this.drunkChain = { source, delay, lfo, lfoGain, filter, shaper, destination };
+  }
+
+  private destroyDrunkChain() {
+    const chain = this.drunkChain;
+    if (!chain) return;
+    chain.lfo.stop();
+    chain.source.disconnect();
+    chain.lfo.disconnect();
+    chain.destination.stream.getTracks().forEach((t) => t.stop());
+    this.drunkChain = null;
   }
 
   private sendDescription(to: string, pc: RTCPeerConnection) {

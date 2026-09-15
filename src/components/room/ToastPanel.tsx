@@ -111,6 +111,9 @@ export default function ToastPanel({
 
   return (
     <div className="flex flex-col gap-1.5">
+      {live.round > 0 && (
+        <p className="text-center text-xs font-medium text-amber-200/80">{live.round + 1}. zdravica</p>
+      )}
       <button
         type="button"
         onClick={() => onReady(!imReady)}

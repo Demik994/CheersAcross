@@ -10,6 +10,7 @@ import {
 import {
   CHAT_MIN_INTERVAL_MS,
   MAX_GLASS_RADIUS,
+  MAX_PHOTO_ROUND,
   PARTY_NAME,
   sanitizeChat,
   type ClientMessage,
@@ -57,6 +58,8 @@ export class ToastRoom extends Server<Env> {
   private phase: ToastPhase = "lobby";
   private intoxication: Record<string, number> = {};
   private vomiting: string[] = [];
+  private round = 0;
+  private photoRound = 1;
 
   private held = new Map<string, GlassPosition>();
   private touching = new Set<string>();
@@ -64,13 +67,24 @@ export class ToastRoom extends Server<Env> {
   private lastChatAt = new Map<string, number>();
 
   async onStart() {
-    const stored = await this.ctx.storage.get<unknown>(["room", "ready", "clinked", "phase", "intoxication", "vomiting"]);
+    const stored = await this.ctx.storage.get<unknown>([
+      "room",
+      "ready",
+      "clinked",
+      "phase",
+      "intoxication",
+      "vomiting",
+      "round",
+      "photoRound",
+    ]);
     this.room = (stored.get("room") as RoomState | undefined) ?? null;
     this.ready = new Set((stored.get("ready") as string[] | undefined) ?? []);
     this.clinked = new Set((stored.get("clinked") as string[] | undefined) ?? []);
     this.phase = (stored.get("phase") as ToastPhase | undefined) ?? "lobby";
     this.intoxication = (stored.get("intoxication") as Record<string, number> | undefined) ?? {};
     this.vomiting = (stored.get("vomiting") as string[] | undefined) ?? [];
+    this.round = (stored.get("round") as number | undefined) ?? 0;
+    this.photoRound = (stored.get("photoRound") as number | undefined) ?? 1;
   }
 
   getConnectionTags(_connection: Connection, ctx: ConnectionContext) {
@@ -137,6 +151,15 @@ export class ToastRoom extends Server<Env> {
         if (!text || now - (this.lastChatAt.get(guestId) ?? 0) < CHAT_MIN_INTERVAL_MS) return;
         this.lastChatAt.set(guestId, now);
         this.broadcastMessage({ type: "chat", guestId, text });
+        return;
+      }
+      case "settings": {
+        if (guestId !== this.room?.hostId) return;
+        const value = Math.round(Number(message.photoRound));
+        if (!Number.isFinite(value)) return;
+        this.photoRound = Math.min(MAX_PHOTO_ROUND, Math.max(1, value));
+        await this.persist();
+        this.broadcastSnapshot();
         return;
       }
       case "voice": {
@@ -228,6 +251,8 @@ export class ToastRoom extends Server<Env> {
     this.phase = "lobby";
     this.intoxication = {};
     this.vomiting = [];
+    this.round = 0;
+    this.photoRound = 1;
   }
 
   // ---------- kucanje ----------
@@ -313,6 +338,7 @@ export class ToastRoom extends Server<Env> {
   /** Kraj runde: svatko popije svoje piće (limunada otrježnjuje), pa tko je prešao granicu — povraća */
   private finishRound() {
     const guests = this.room?.guests ?? [];
+    this.round += 1;
     this.vomiting = [];
     for (const guest of guests) {
       const next = afterDrinking(this.intoxication[guest.id] ?? 0, guest.drink);
@@ -329,6 +355,8 @@ export class ToastRoom extends Server<Env> {
       phase: this.phase,
       intoxication: this.intoxication,
       vomiting: this.vomiting,
+      round: this.round,
+      photoRound: this.photoRound,
     });
   }
 
@@ -363,6 +391,8 @@ export class ToastRoom extends Server<Env> {
       intoxication: this.intoxication,
       vomiting: this.vomiting,
       peers: this.peers(excludeConnectionId),
+      round: this.round,
+      photoRound: this.photoRound,
     };
     this.broadcastMessage(snapshot);
   }

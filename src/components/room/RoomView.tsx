@@ -21,6 +21,7 @@ import AvatarSheet from "./AvatarSheet";
 import ChatInput from "./ChatInput";
 import GuestListSheet from "./GuestListSheet";
 import InviteButton from "./InviteButton";
+import PhotoRoundPicker from "./PhotoRoundPicker";
 import { FullscreenMessage } from "./RoomClient";
 import RoomGone from "./RoomGone";
 import ToastPanel from "./ToastPanel";
@@ -44,6 +45,7 @@ export default function RoomView({ code, session }: { code: string; session: Gue
     moveGlass,
     startNewRound,
     sendChat,
+    setPhotoRound,
     bubbles,
     send,
     registerSignalHandler,
@@ -57,6 +59,7 @@ export default function RoomView({ code, session }: { code: string; session: Gue
     session,
     mode: voiceMode ?? null,
     muted,
+    drunkLevel: drunkLevel(live?.intoxication.get(session.guestId) ?? 0),
     connected,
     connectionId,
     peers: live?.peers ?? NO_PEERS,
@@ -110,7 +113,9 @@ export default function RoomView({ code, session }: { code: string; session: Gue
   const me = state.guests.find((g) => g.id === meId);
   const isHost = meId === state.hostId;
   const celebrationShown = revealStartedAt !== null && celebratedRound === revealStartedAt;
-  const photoRevealed = celebrationShown && state.photoUrl !== null;
+  // Slika se otkriva samo u zdravici koju je domaćin odabrao
+  const photoRound = live !== null && live.round === live.photoRound;
+  const photoRevealed = celebrationShown && state.photoUrl !== null && photoRound;
   const inLobby = live === null || live.phase === "lobby";
   const myIntoxication = live?.intoxication.get(meId) ?? 0;
   const myLevel = drunkLevel(myIntoxication);
@@ -282,8 +287,11 @@ export default function RoomView({ code, session }: { code: string; session: Gue
           {inLobby && me && <DrinkMenu value={me.drink} onChange={(d) => void changeDrink(d)} />}
 
           {inLobby && isHost && (
-            // Slika ostaje skrivena gostima dok se svi ne kucnu
+            // Slika ostaje skrivena gostima dok se ne dođe do odabrane zdravice
             <PhotoUpload photoUrl={state.photoUrl} onUpload={uploadPhoto} onRemove={removePhoto} />
+          )}
+          {inLobby && isHost && state.photoUrl && live && (
+            <PhotoRoundPicker round={live.round} photoRound={live.photoRound} onChange={setPhotoRound} />
           )}
 
           <ChatInput onSend={sendChat} disabled={!connected} />

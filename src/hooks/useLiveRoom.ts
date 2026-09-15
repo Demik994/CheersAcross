@@ -33,6 +33,10 @@ export type LiveInfo = {
   vomiting: ReadonlySet<string>;
   /** Spojeni preglednici i tko koristi mikrofon */
   peers: readonly Peer[];
+  /** Broj završenih zdravica */
+  round: number;
+  /** U kojoj se zdravici otkriva slika slavlja */
+  photoRound: number;
 };
 
 /** Zadnja poruka svakog gosta koja se trenutno prikazuje u oblačiću */
@@ -140,6 +144,8 @@ export function useLiveRoom(code: string, session: GuestSession) {
             intoxication: new Map(Object.entries(message.intoxication ?? {})),
             vomiting: new Set(message.vomiting ?? []),
             peers: message.peers ?? [],
+            round: message.round ?? 0,
+            photoRound: message.photoRound ?? 1,
           });
 
           const previous = lastPhase.current;
@@ -202,6 +208,7 @@ export function useLiveRoom(code: string, session: GuestSession) {
   const moveGlass = useCallback((position: GlassPosition | null) => send({ type: "glass", position }), [send]);
   const startNewRound = useCallback(() => send({ type: "reset" }), [send]);
   const sendChat = useCallback((text: string) => send({ type: "chat", text }), [send]);
+  const setPhotoRound = useCallback((photoRound: number) => send({ type: "settings", photoRound }), [send]);
   const registerSignalHandler = useCallback((handler: SignalHandler | null) => {
     signalHandler.current = handler;
   }, []);
@@ -217,6 +224,7 @@ export function useLiveRoom(code: string, session: GuestSession) {
     moveGlass,
     startNewRound,
     sendChat,
+    setPhotoRound,
     bubbles,
     send,
     registerSignalHandler,
