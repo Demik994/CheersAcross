@@ -4,6 +4,7 @@ import { useEffect, useRef } from "react";
 import { useFrame, useThree } from "@react-three/fiber";
 import { Vector3, type PerspectiveCamera } from "three";
 import { PHOTO_CENTER_Y, PHOTO_SIZE } from "./CelebrationPhoto";
+import { tvCloseUpView, tvPlacement } from "./tvPlacement";
 
 /** Dio OrbitControls API-ja koji nam treba (drei ih registrira kao `state.controls`) */
 type Controls = {
@@ -21,35 +22,46 @@ export const DEFAULT_TARGET: [number, number, number] = [0, -0.35, 0];
 
 const NORMAL_LIMITS = { minDistance: 2.5, maxDistance: 9 };
 const REVEAL_LIMITS = { minDistance: 1.2, maxDistance: 9 };
+const TV_LIMITS = { minDistance: 0.8, maxDistance: 12 };
 /** Blagi pogled odozgo na sliku (radijani) */
 const REVEAL_ELEVATION = 0.18;
 const FIT_HEIGHT = 0.6;
 const FIT_WIDTH = 0.9;
 
+type Focus = "table" | "photo" | "tv";
+
 /**
  * Kad se slika otkrije, kamera doleti do nje (zadržava smjer iz kojeg
- * je gost gledao). Kad se otkrivanje ugasi, vraća se na početni kadar.
+ * je gost gledao); kad gost dodirne televizor, doleti ispred njega.
+ * Inače se vraća na početni kadar.
  * Za vrijeme leta OrbitControls su isključeni da se ne "tuku" s animacijom.
  */
-export default function CameraRig({ revealed }: { revealed: boolean }) {
+export default function CameraRig({ revealed, watchTv }: { revealed: boolean; watchTv: boolean }) {
   const get = useThree((state) => state.get);
-  const flight = useRef<{ position: Vector3; target: Vector3; revealed: boolean } | null>(null);
+  const width = useThree((state) => state.size.width);
+  const height = useThree((state) => state.size.height);
+  const focus: Focus = revealed ? "photo" : watchTv ? "tv" : "table";
+  const flight = useRef<{ position: Vector3; target: Vector3; focus: Focus } | null>(null);
   const firstRun = useRef(true);
 
   useEffect(() => {
     // Ne animiramo kod prvog rendera — kamera je već na početnom kadru
     if (firstRun.current) {
       firstRun.current = false;
-      if (!revealed) return;
+      if (focus === "table") return;
     }
 
     const { camera, size } = get();
-    if (!revealed) {
+    if (focus === "table") {
       flight.current = {
         position: new Vector3(...DEFAULT_CAMERA_POSITION),
         target: new Vector3(...DEFAULT_TARGET),
-        revealed: false,
+        focus,
       };
+      return;
+    }
+    if (focus === "tv") {
+      flight.current = { ...tvCloseUpView(tvPlacement(width, height), width, height), focus };
       return;
     }
 
@@ -72,17 +84,18 @@ export default function CameraRig({ revealed }: { revealed: boolean }) {
       .multiplyScalar(distance)
       .add(target);
 
-    flight.current = { position, target, revealed: true };
-  }, [revealed, get]);
+    flight.current = { position, target, focus };
+  }, [focus, get, width, height]);
 
   useFrame((state, delta) => {
     const controls = state.controls as unknown as Controls | null;
     const goal = flight.current;
     if (!controls || !goal) return;
 
-    const limits = goal.revealed ? REVEAL_LIMITS : NORMAL_LIMITS;
+    const limits = goal.focus === "photo" ? REVEAL_LIMITS : goal.focus === "tv" ? TV_LIMITS : NORMAL_LIMITS;
     controls.enabled = false;
     controls.minDistance = Math.min(limits.minDistance, controls.minDistance);
+    controls.maxDistance = Math.max(limits.maxDistance, controls.maxDistance);
 
     const k = 1 - Math.exp(-3 * delta);
     state.camera.position.lerp(goal.position, k);

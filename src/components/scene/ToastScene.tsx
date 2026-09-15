@@ -16,6 +16,7 @@ import Confetti from "./Confetti";
 import GuestGlass from "./GuestGlass";
 import GuestSeat from "./GuestSeat";
 import ResponsiveCamera from "./ResponsiveCamera";
+import SceneTelevision, { type SceneTvProps } from "./SceneTelevision";
 import { VOMIT_DURATION_MS } from "./VomitStream";
 import Table, { TABLE_TOP_Y } from "./Table";
 import TableSpace from "./TableSpace";
@@ -36,6 +37,8 @@ export type ToastSceneProps = {
   revealStartedAt: number | null;
   photoUrl: string | null;
   photoRevealed: boolean;
+  /** Televizor s YouTube glazbom (null = ništa ne svira ili je glazba isključena) */
+  tv: SceneTvProps | null;
 };
 
 function badgeFor(live: LiveInfo | null, guestId: string) {
@@ -57,6 +60,7 @@ export default function ToastScene({
   revealStartedAt,
   photoUrl,
   photoRevealed,
+  tv,
 }: ToastSceneProps) {
   const myIndex = Math.max(0, guests.findIndex((g) => g.id === meId));
   const toasting = live?.phase === "toasting";
@@ -150,7 +154,9 @@ export default function ToastScene({
         minPolarAngle={Math.PI * 0.15}
         maxPolarAngle={Math.PI * 0.45}
       />
-      <CameraRig revealed={photoRevealed} />
+      <CameraRig revealed={photoRevealed} watchTv={tv?.watching ?? false} />
+      {/* Slika slavlja ne smije stajati ispred videa — dok je otkrivena, video je u kutu */}
+      {tv && <SceneTelevision {...tv} hidden={photoRevealed} />}
       {/* Iscrtava scenu — s "pijanim" pogledom ako sam popio */}
       <DrunkVision level={levelOf(meId)} />
     </Canvas>

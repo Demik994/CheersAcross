@@ -1,7 +1,7 @@
 "use client";
 
 import { useRouter } from "next/navigation";
-import { useEffect, useState } from "react";
+import { useEffect, useState, useSyncExternalStore } from "react";
 import SceneLoader from "@/components/scene/SceneLoader";
 import DrinkMenu from "@/components/ui/DrinkMenu";
 import PhotoUpload from "@/components/ui/PhotoUpload";
@@ -9,6 +9,8 @@ import { useLiveRoom } from "@/hooks/useLiveRoom";
 import { useVoiceChat } from "@/hooks/useVoiceChat";
 import type { Peer } from "@/lib/party/protocol";
 import { saveVoiceMode, useVoiceMode, type VoiceMode } from "@/lib/voicePreference";
+import { saveMusicPreference, useMusicPreference } from "@/lib/musicPreference";
+import { TvScreenBridge } from "@/lib/tvScreen";
 import type { DrinkId } from "@/lib/drinks";
 import { roomApi, type Look } from "@/lib/roomApi";
 import type { GuestSession, PublicGuest } from "@/lib/rooms/types";
@@ -78,6 +80,11 @@ export default function RoomView({ code, session }: { code: string; session: Gue
   const [guestListOpen, setGuestListOpen] = useState(false);
   const [avatarOpen, setAvatarOpen] = useState(false);
   const [musicOpen, setMusicOpen] = useState(false);
+  const [tvBridge] = useState(() => new TvScreenBridge());
+  const musicPreference = useMusicPreference();
+  const tvMode = useSyncExternalStore(tvBridge.subscribe, tvBridge.getMode, () => "dock" as const);
+  /** Za koju fazu runde je gost poslao kameru do televizora (nova faza = natrag za stol) */
+  const [watchingKey, setWatchingKey] = useState<string | null>(null);
 
   // Token više ne vrijedi (gost je uklonjen ili je izašao na drugom tabu) — natrag na formu za ulazak
   useEffect(() => {
@@ -127,6 +134,32 @@ export default function RoomView({ code, session }: { code: string; session: Gue
   const myIntoxication = live?.intoxication.get(meId) ?? 0;
   const myLevel = drunkLevel(myIntoxication);
   const musicPlaying = live?.music.current != null;
+  const currentTrack = live?.music.current ?? null;
+  const phaseKey = live ? `${live.round}:${live.phase}` : null;
+  // Za vrijeme kucanja treba stol, a za sliku slavlja kamera ide na sliku
+  const watchingTv =
+    currentTrack !== null &&
+    musicPreference.enabled &&
+    watchingKey !== null &&
+    watchingKey === phaseKey &&
+    live?.phase === "lobby" &&
+    !photoRevealed;
+  const tv =
+    currentTrack && musicPreference.enabled
+      ? {
+          bridge: tvBridge,
+          title: currentTrack.track.title,
+          videoId: currentTrack.track.videoId,
+          lamp: currentTrack.startedAt === null ? ("paused" as const) : ("playing" as const),
+          watching: watchingTv,
+          onWatch: () => setWatchingKey(phaseKey),
+          onOpen: () => setMusicOpen(true),
+          onPowerOff: () => {
+            setWatchingKey(null);
+            saveMusicPreference({ enabled: false });
+          },
+        }
+      : null;
 
   async function changeDrink(drink: DrinkId) {
     setActionError(null);
@@ -194,9 +227,10 @@ export default function RoomView({ code, session }: { code: string; session: Gue
         revealStartedAt={revealStartedAt}
         photoUrl={state.photoUrl}
         photoRevealed={photoRevealed}
+        tv={tv}
       />
 
-      <header className="pointer-events-none absolute inset-x-0 top-0 z-10 flex items-start justify-between gap-2 px-3 pt-[max(0.75rem,env(safe-area-inset-top))]">
+      <header data-tv-bound="top" className="pointer-events-none absolute inset-x-0 top-0 z-10 flex items-start justify-between gap-2 px-3 pt-[max(0.75rem,env(safe-area-inset-top))]">
         <button
           type="button"
           onClick={() => setGuestListOpen(true)}
@@ -260,14 +294,28 @@ export default function RoomView({ code, session }: { code: string; session: Gue
           serverOffset={serverOffset}
           voiceLevels={voice.levels}
           isHost={isHost}
+          bridge={tvBridge}
           onEnded={(trackId) => sendMusic({ action: "ended", trackId })}
-          onOpen={() => setMusicOpen(true)}
         />
+      )}
+
+      {tv && (watchingTv || (tvMode === "dock" && live?.phase === "lobby" && !photoRevealed)) && (
+        <button
+          type="button"
+          onClick={() => setWatchingKey(watchingTv ? null : phaseKey)}
+          className={`absolute z-10 h-9 rounded-full bg-stone-900/80 px-3 text-xs font-semibold shadow-lg backdrop-blur active:bg-stone-800 ${
+            watchingTv
+              ? "top-[calc(max(0.75rem,env(safe-area-inset-top))+3.25rem)] left-1/2 -translate-x-1/2"
+              : "top-[calc(max(0.75rem,env(safe-area-inset-top))+2.5rem+228px)] right-3"
+          }`}
+        >
+          {watchingTv ? "↩ Natrag za stol" : "📺 Gledaj na televizoru"}
+        </button>
       )}
 
       <section className="pointer-events-none absolute inset-x-0 bottom-0 z-10 bg-gradient-to-t from-background via-background/90 to-transparent px-4 pt-10 pb-[max(1rem,env(safe-area-inset-bottom))]">
         {/* pointer-events samo na kontrolama, da se čaša može vući i iza gradijenta */}
-        <div className="pointer-events-auto mx-auto flex max-w-xl flex-col gap-3">
+        <div data-tv-bound="bottom" className="pointer-events-auto mx-auto flex max-w-xl flex-col gap-3">
           {voice.micError && (
             <div role="alert" className="flex items-center gap-2 rounded-xl bg-red-500/15 px-3 py-2 text-xs text-red-200">
               <span className="flex-1">{voice.micError}</span>

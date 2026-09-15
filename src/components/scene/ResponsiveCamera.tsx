@@ -12,7 +12,7 @@ const REFERENCE_ASPECT = 1.5;
  * horizontalni kadar ostane otprilike isti kao na desktopu —
  * inače bi stol na mobitelu bio odrezan sa strane.
  */
-function fovForAspect(aspect: number) {
+export function fovForAspect(aspect: number) {
   if (aspect >= REFERENCE_ASPECT) return BASE_FOV;
   const halfFov = (BASE_FOV * Math.PI) / 360;
   const horizontalHalf = Math.atan(Math.tan(halfFov) * REFERENCE_ASPECT);

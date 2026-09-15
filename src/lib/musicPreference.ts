@@ -2,11 +2,11 @@
 
 import { useSyncExternalStore } from "react";
 
-/** Postavke glazbe samo za ovaj uređaj: je li glazba uključena i u kojem je kutu video */
-export type MusicPreference = { enabled: boolean; side: "left" | "right" };
+/** Postavke glazbe samo za ovaj uređaj */
+export type MusicPreference = { enabled: boolean };
 
 const KEY = "cheersacross:music";
-const DEFAULT: MusicPreference = { enabled: true, side: "right" };
+const DEFAULT: MusicPreference = { enabled: true };
 const listeners = new Set<() => void>();
 let cached: MusicPreference | null = null;
 
@@ -16,10 +16,7 @@ function read(): MusicPreference {
   try {
     const parsed = JSON.parse(window.localStorage.getItem(KEY) ?? "null");
     if (parsed && typeof parsed === "object") {
-      cached = {
-        enabled: parsed.enabled !== false,
-        side: parsed.side === "left" ? "left" : "right",
-      };
+      cached = { enabled: parsed.enabled !== false };
     }
   } catch {
     // privatni način ili neispravan zapis — zadane postavke

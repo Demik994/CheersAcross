@@ -4,9 +4,10 @@ export const TABLE_RADIUS = 1.8;
 export const TABLE_TOP_Y = 0;
 const TOP_THICKNESS = 0.08;
 const TABLE_HEIGHT = 1.1;
+export const FLOOR_Y = TABLE_TOP_Y - TABLE_HEIGHT;
 
 export default function Table() {
-  const floorY = TABLE_TOP_Y - TABLE_HEIGHT;
+  const floorY = FLOOR_Y;
 
   return (
     <group>
