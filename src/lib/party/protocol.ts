@@ -32,6 +32,10 @@ export type LiveSnapshot = {
   /** Gosti koji su se u ovoj rundi kucnuli barem s jednim drugim */
   clinked: string[];
   phase: ToastPhase;
+  /** Popijena standardna pića po gostu (ne pada s vremenom, samo limunadom) */
+  intoxication: Record<string, number>;
+  /** Tko povraća na kraju ove runde (prazno dok runda nije gotova) */
+  vomiting: string[];
 };
 
 export type GlassMoved = {

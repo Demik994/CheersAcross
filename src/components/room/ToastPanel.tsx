@@ -1,6 +1,8 @@
 "use client";
 
 import type { LiveInfo } from "@/hooks/useLiveRoom";
+import type { DrinkId } from "@/lib/drinks";
+import { DRUNK_LEVELS, SOBERING_DRINK, SOBER_PER_LEMONADE, drunkLevel } from "@/lib/drunk";
 import type { PublicGuest } from "@/lib/rooms/types";
 
 type Props = {
@@ -11,6 +13,9 @@ type Props = {
   connected: boolean;
   /** Animacija pijenja je gotova (slika je otkrivena) */
   celebrationShown: boolean;
+  /** Moja popijena standardna pića */
+  myIntoxication: number;
+  myDrink: DrinkId | null;
   onReady: (ready: boolean) => void;
   onNewRound: () => void;
 };
@@ -37,6 +42,8 @@ export default function ToastPanel({
   live,
   connected,
   celebrationShown,
+  myIntoxication,
+  myDrink,
   onReady,
   onNewRound,
 }: Props) {
@@ -120,6 +127,21 @@ export default function ToastPanel({
           Čekamo: <NameList guests={waitingFor} live={live} />
         </p>
       )}
+      <SoberHint intoxication={myIntoxication} drink={myDrink} />
     </div>
+  );
+}
+
+/** Savjet pijanom gostu: limunada otrježnjuje */
+function SoberHint({ intoxication, drink }: { intoxication: number; drink: DrinkId | null }) {
+  const level = drunkLevel(intoxication);
+  if (level < 2) return null;
+  const status = ["", "", "Pijan si!", "Jako si pijan!", "Toliko si pijan da povraćaš!"][level];
+  return (
+    <p className="rounded-lg bg-lime-400/10 px-3 py-1.5 text-center text-xs text-lime-200">
+      {drink === SOBERING_DRINK
+        ? `🍋 Limunada će te otrijezniti (−${SOBER_PER_LEMONADE} pića) nakon ove runde.`
+        : `${DRUNK_LEVELS[level].emoji} ${status} Za otrežnjenje popij limunadu (Meni pića → Sokovi).`}
+    </p>
   );
 }

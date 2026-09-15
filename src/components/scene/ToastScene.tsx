@@ -4,16 +4,19 @@ import type { RefObject } from "react";
 import { Canvas } from "@react-three/fiber";
 import { ContactShadows, Environment, Lightformer, OrbitControls } from "@react-three/drei";
 import type { ClinkEvent, GlassTargets, LiveInfo } from "@/hooks/useLiveRoom";
+import { drunkLevel } from "@/lib/drunk";
 import { DRINK_DURATION_MS, REVEAL_ALREADY_DONE, seatAngle } from "@/lib/party/geometry";
 import type { GlassPosition } from "@/lib/party/protocol";
 import type { PublicGuest } from "@/lib/rooms/types";
 import CameraRig, { DEFAULT_TARGET } from "./CameraRig";
 import CelebrationPhoto from "./CelebrationPhoto";
+import DrunkVision from "./DrunkVision";
 import ClinkBursts from "./ClinkBursts";
 import Confetti from "./Confetti";
 import GuestGlass from "./GuestGlass";
 import GuestSeat from "./GuestSeat";
 import ResponsiveCamera from "./ResponsiveCamera";
+import { VOMIT_DURATION_MS } from "./VomitStream";
 import Table, { TABLE_TOP_Y } from "./Table";
 import TableSpace from "./TableSpace";
 
@@ -51,8 +54,13 @@ export default function ToastScene({
 }: ToastSceneProps) {
   const myIndex = Math.max(0, guests.findIndex((g) => g.id === meId));
   const toasting = live?.phase === "toasting";
-  const confettiAt =
-    revealStartedAt !== null && revealStartedAt !== REVEAL_ALREADY_DONE ? revealStartedAt + DRINK_DURATION_MS : null;
+  const roundAnimated = revealStartedAt !== null && revealStartedAt !== REVEAL_ALREADY_DONE;
+  const anyVomit = (live?.vomiting.size ?? 0) > 0;
+  // Ako netko povraća, konfeti i slika dolaze tek nakon toga
+  const confettiAt = roundAnimated ? revealStartedAt + DRINK_DURATION_MS + (anyVomit ? VOMIT_DURATION_MS : 0) : null;
+  const levelOf = (id: string) => drunkLevel(live?.intoxication.get(id) ?? 0);
+  // Tko je ušao nakon runde vidi samo lokvu, bez ponovnog mlaza
+  const vomitAt = revealStartedAt === null ? null : roundAnimated ? revealStartedAt + DRINK_DURATION_MS + 200 : REVEAL_ALREADY_DONE;
 
   return (
     <Canvas
@@ -93,6 +101,8 @@ export default function ToastScene({
                 offline={live !== null && !live.online.has(guest.id)}
                 badge={badgeFor(live, guest.id)}
                 showLabel={!photoRevealed}
+                drunk={levelOf(guest.id)}
+                vomitStartedAt={live?.vomiting.has(guest.id) ? vomitAt : null}
               />
               <GuestGlass
                 guest={guest}
@@ -132,6 +142,8 @@ export default function ToastScene({
         maxPolarAngle={Math.PI * 0.45}
       />
       <CameraRig revealed={photoRevealed} />
+      {/* Iscrtava scenu — s "pijanim" pogledom ako sam popio */}
+      <DrunkVision level={levelOf(meId)} />
     </Canvas>
   );
 }

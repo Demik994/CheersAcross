@@ -25,6 +25,10 @@ export type LiveInfo = {
   ready: ReadonlySet<string>;
   clinked: ReadonlySet<string>;
   phase: ToastPhase;
+  /** Popijena standardna pića po gostu */
+  intoxication: ReadonlyMap<string, number>;
+  /** Tko povraća na kraju ove runde */
+  vomiting: ReadonlySet<string>;
 };
 
 /** Zadnje poznate pozicije tuđih čaša; 3D scena ih čita svaki frame (bez re-rendera) */
@@ -116,6 +120,9 @@ export function useLiveRoom(code: string, session: GuestSession) {
             ready: new Set(message.ready),
             clinked: new Set(message.clinked),
             phase: message.phase,
+            // `?? …`: stariji real-time server (prije deploya) ne šalje ova polja
+            intoxication: new Map(Object.entries(message.intoxication ?? {})),
+            vomiting: new Set(message.vomiting ?? []),
           });
 
           const previous = lastPhase.current;

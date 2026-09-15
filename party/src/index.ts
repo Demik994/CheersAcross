@@ -18,6 +18,7 @@ import {
   type ToastPhase,
 } from "../../src/lib/party/protocol";
 import { verifyTicket } from "../../src/lib/party/ticket";
+import { VOMIT_LEVEL, afterDrinking, drunkLevel } from "../../src/lib/drunk";
 import type { RoomState } from "../../src/lib/rooms/types";
 
 type ConnectionState = { guestId: string };
@@ -49,17 +50,21 @@ export class ToastRoom extends Server<Env> {
   private ready = new Set<string>();
   private clinked = new Set<string>();
   private phase: ToastPhase = "lobby";
+  private intoxication: Record<string, number> = {};
+  private vomiting: string[] = [];
 
   private held = new Map<string, GlassPosition>();
   private touching = new Set<string>();
   private lastClinkAt = new Map<string, number>();
 
   async onStart() {
-    const stored = await this.ctx.storage.get<unknown>(["room", "ready", "clinked", "phase"]);
+    const stored = await this.ctx.storage.get<unknown>(["room", "ready", "clinked", "phase", "intoxication", "vomiting"]);
     this.room = (stored.get("room") as RoomState | undefined) ?? null;
     this.ready = new Set((stored.get("ready") as string[] | undefined) ?? []);
     this.clinked = new Set((stored.get("clinked") as string[] | undefined) ?? []);
     this.phase = (stored.get("phase") as ToastPhase | undefined) ?? "lobby";
+    this.intoxication = (stored.get("intoxication") as Record<string, number> | undefined) ?? {};
+    this.vomiting = (stored.get("vomiting") as string[] | undefined) ?? [];
   }
 
   getConnectionTags(_connection: Connection, ctx: ConnectionContext) {
@@ -124,6 +129,7 @@ export class ToastRoom extends Server<Env> {
         this.phase = "lobby";
         this.ready.clear();
         this.resetRound();
+        this.vomiting = [];
         await this.persist();
         this.broadcastSnapshot();
         return;
@@ -164,6 +170,8 @@ export class ToastRoom extends Server<Env> {
     // Uklonjeni gosti: makni im spremnost/kucanje i zatvori im konekcije
     this.ready = new Set([...this.ready].filter((id) => guestIds.has(id)));
     this.clinked = new Set([...this.clinked].filter((id) => guestIds.has(id)));
+    this.intoxication = Object.fromEntries(Object.entries(this.intoxication).filter(([id]) => guestIds.has(id)));
+    this.vomiting = this.vomiting.filter((id) => guestIds.has(id));
     for (const id of this.held.keys()) if (!guestIds.has(id)) this.held.delete(id);
     for (const connection of this.getConnections<ConnectionState>()) {
       const id = connection.state?.guestId;
@@ -190,6 +198,8 @@ export class ToastRoom extends Server<Env> {
     this.ready.clear();
     this.resetRound();
     this.phase = "lobby";
+    this.intoxication = {};
+    this.vomiting = [];
   }
 
   // ---------- kucanje ----------
@@ -268,6 +278,18 @@ export class ToastRoom extends Server<Env> {
     if (this.phase === "toasting" && guests.every((g) => this.clinked.has(g.id))) {
       this.phase = "revealed";
       this.held.clear();
+      this.finishRound();
+    }
+  }
+
+  /** Kraj runde: svatko popije svoje piće (limunada otrježnjuje), pa tko je prešao granicu — povraća */
+  private finishRound() {
+    const guests = this.room?.guests ?? [];
+    this.vomiting = [];
+    for (const guest of guests) {
+      const next = afterDrinking(this.intoxication[guest.id] ?? 0, guest.drink);
+      this.intoxication[guest.id] = next;
+      if (drunkLevel(next) >= VOMIT_LEVEL) this.vomiting.push(guest.id);
     }
   }
 
@@ -277,6 +299,8 @@ export class ToastRoom extends Server<Env> {
       ready: [...this.ready],
       clinked: [...this.clinked],
       phase: this.phase,
+      intoxication: this.intoxication,
+      vomiting: this.vomiting,
     });
   }
 
@@ -298,6 +322,8 @@ export class ToastRoom extends Server<Env> {
       ready: [...this.ready],
       clinked: [...this.clinked],
       phase: this.phase,
+      intoxication: this.intoxication,
+      vomiting: this.vomiting,
     };
     this.broadcastMessage(snapshot);
   }

@@ -11,5 +11,5 @@
     "types": ["./worker-configuration.d.ts"],
     "paths": { "@/*": ["../src/*"] }
   },
-  "include": ["src/**/*.ts", "worker-configuration.d.ts", "../src/lib/party/protocol.ts", "../src/lib/party/ticket.ts", "../src/lib/party/geometry.ts"]
+  "include": ["src/**/*.ts", "worker-configuration.d.ts", "../src/lib/party/protocol.ts", "../src/lib/party/ticket.ts", "../src/lib/party/geometry.ts", "../src/lib/drinks.ts", "../src/lib/drunk.ts"]
 }

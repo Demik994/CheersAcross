@@ -4,6 +4,7 @@ import { useRef } from "react";
 import { useFrame } from "@react-three/fiber";
 import { Html } from "@react-three/drei";
 import { MathUtils, type Group } from "three";
+import { DRUNK_LEVELS, type DrunkLevel } from "@/lib/drunk";
 import type { PublicGuest } from "@/lib/rooms/types";
 import Character from "./Character";
 import { SEAT_RADIUS, angleDelta } from "@/lib/party/geometry";
@@ -19,13 +20,15 @@ type Props = {
   badge: { icon: string; label: string } | null;
   /** HTML oznake se crtaju iznad canvasa — skrivamo ih dok je slika otkrivena */
   showLabel: boolean;
+  drunk: DrunkLevel;
+  vomitStartedAt: number | null;
 };
 
 /**
  * Jedno mjesto za stolom: čovječuljak i ime iznad glave.
  * Kad netko uđe ili izađe, mjesta se preraspodijele — lik glatko "klizi" oko stola.
  */
-export default function GuestSeat({ guest, angle, isMe, offline, badge, showLabel }: Props) {
+export default function GuestSeat({ guest, angle, isMe, offline, badge, showLabel, drunk, vomitStartedAt }: Props) {
   const pivotRef = useRef<Group>(null);
 
   useFrame((_, delta) => {
@@ -45,6 +48,8 @@ export default function GuestSeat({ guest, angle, isMe, offline, badge, showLabe
         skin={guest.skin}
         color={offline ? "#6f6a66" : guest.color}
         sleepy={offline}
+        drunk={drunk}
+        vomitStartedAt={vomitStartedAt}
         position={[0, TABLE_TOP_Y, SEAT_RADIUS]}
         rotation-y={Math.PI}
       />
@@ -67,6 +72,7 @@ export default function GuestSeat({ guest, angle, isMe, offline, badge, showLabe
           {guest.name}
           {isMe && <span className="font-normal opacity-70">(ti)</span>}
           {badge && <span aria-label={badge.label}>{badge.icon}</span>}
+          {drunk > 0 && <span aria-label={DRUNK_LEVELS[drunk].label}>{DRUNK_LEVELS[drunk].emoji}</span>}
           {offline && <span aria-label="nije spojen">💤</span>}
         </div>
       </Html>

@@ -11,7 +11,9 @@ import { roomApi, type Look } from "@/lib/roomApi";
 import type { GuestSession, PublicGuest } from "@/lib/rooms/types";
 import { DRINK_DURATION_MS, REVEAL_ALREADY_DONE } from "@/lib/party/geometry";
 import { clearSession } from "@/lib/session";
-import { playCelebration, unlockAudio } from "@/lib/sound";
+import { playCelebration, playVomit, unlockAudio } from "@/lib/sound";
+import { DRUNK_LEVELS, drunkLevel } from "@/lib/drunk";
+import { VOMIT_DURATION_MS } from "@/components/scene/VomitStream";
 import AvatarSheet from "./AvatarSheet";
 import GuestListSheet from "./GuestListSheet";
 import InviteButton from "./InviteButton";
@@ -52,16 +54,28 @@ export default function RoomView({ code, session }: { code: string; session: Gue
     return () => window.removeEventListener("pointerdown", unlockAudio);
   }, []);
 
-  // Nakon animacije pijenja: otkrij sliku, konfeti i melodija
+  const anyVomit = (live?.vomiting.size ?? 0) > 0;
+
+  // Nakon animacije pijenja (i eventualnog povraćanja): otkrij sliku, konfeti i melodija
   useEffect(() => {
     if (revealStartedAt === null) return;
-    const remaining = revealStartedAt + DRINK_DURATION_MS - performance.now();
-    const timer = setTimeout(() => {
-      setCelebratedRound(revealStartedAt);
-      if (revealStartedAt !== REVEAL_ALREADY_DONE) playCelebration();
-    }, Math.max(0, remaining));
-    return () => clearTimeout(timer);
-  }, [revealStartedAt]);
+    const animated = revealStartedAt !== REVEAL_ALREADY_DONE;
+    const now = performance.now();
+    const drinkEnd = revealStartedAt + DRINK_DURATION_MS;
+    const vomitTimer =
+      animated && anyVomit ? setTimeout(playVomit, Math.max(0, drinkEnd + 200 - now)) : undefined;
+    const timer = setTimeout(
+      () => {
+        setCelebratedRound(revealStartedAt);
+        if (animated) playCelebration();
+      },
+      Math.max(0, drinkEnd + (anyVomit ? VOMIT_DURATION_MS : 0) - now),
+    );
+    return () => {
+      clearTimeout(timer);
+      clearTimeout(vomitTimer);
+    };
+  }, [revealStartedAt, anyVomit]);
 
   if (error?.status === 404) return <RoomGone />;
   if (!state) return <FullscreenMessage text={error ? error.message : "Ulazimo u sobu…"} />;
@@ -72,6 +86,8 @@ export default function RoomView({ code, session }: { code: string; session: Gue
   const celebrationShown = revealStartedAt !== null && celebratedRound === revealStartedAt;
   const photoRevealed = celebrationShown && state.photoUrl !== null;
   const inLobby = live === null || live.phase === "lobby";
+  const myIntoxication = live?.intoxication.get(meId) ?? 0;
+  const myLevel = drunkLevel(myIntoxication);
 
   async function changeDrink(drink: DrinkId) {
     setActionError(null);
@@ -145,6 +161,12 @@ export default function RoomView({ code, session }: { code: string; session: Gue
           <span className="font-mono font-semibold tracking-widest text-amber-200">{code}</span>
           <span className="text-foreground/40">·</span>
           <span aria-label={`${state.guests.length} gostiju`}>👥 {state.guests.length}</span>
+          {myLevel > 0 && (
+            <>
+              <span className="text-foreground/40">·</span>
+              <span aria-label={`Ti si ${DRUNK_LEVELS[myLevel].label}`}>{DRUNK_LEVELS[myLevel].emoji}</span>
+            </>
+          )}
         </button>
         <div className="flex items-center gap-2">
           <InviteButton code={code} />
@@ -185,6 +207,8 @@ export default function RoomView({ code, session }: { code: string; session: Gue
             live={live}
             connected={connected}
             celebrationShown={celebrationShown}
+            myIntoxication={myIntoxication}
+            myDrink={me?.drink ?? null}
             onReady={setReady}
             onNewRound={startNewRound}
           />

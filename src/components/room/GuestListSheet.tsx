@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import type { LiveInfo } from "@/hooks/useLiveRoom";
+import { DRUNK_LEVELS, drunkLevel } from "@/lib/drunk";
 import type { PublicGuest } from "@/lib/rooms/types";
 
 type Props = {
@@ -50,6 +51,8 @@ export default function GuestListSheet({ guests, meId, isHost, live, onKick, onC
           {guests.map((guest) => {
             const online = live === null || live.online.has(guest.id);
             const ready = live?.ready.has(guest.id) ?? false;
+            const drinks = live?.intoxication.get(guest.id) ?? 0;
+            const level = DRUNK_LEVELS[drunkLevel(drinks)];
             return (
               <li key={guest.id} className="flex min-h-12 items-center gap-3 rounded-xl px-2 py-1.5">
                 <span className="size-3 shrink-0 rounded-full" style={{ backgroundColor: guest.color }} aria-hidden />
@@ -62,6 +65,12 @@ export default function GuestListSheet({ guests, meId, isHost, live, onKick, onC
                   <span className={`text-xs ${online ? "text-emerald-300/80" : "text-foreground/45"}`}>
                     {online ? "spojen" : "💤 nije spojen"}
                     {ready && " · 🥂 spreman"}
+                    {drinks > 0 && (
+                      <span className="text-foreground/55">
+                        {" · "}
+                        {level.emoji} {level.label} ({drinks.toLocaleString("hr", { maximumFractionDigits: 1 })})
+                      </span>
+                    )}
                   </span>
                 </div>
                 {isHost && guest.id !== meId && (

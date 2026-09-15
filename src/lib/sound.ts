@@ -63,6 +63,41 @@ export function playClink(volume = 1) {
   ring(ctx, now + 0.012, base * 1.07, 0.16 * volume, 1.1);
 }
 
+/** "Bleeergh" — filtrirani šum koji klizi prema dolje (crtićko povraćanje) */
+export function playVomit() {
+  const ctx = getContext();
+  if (!ctx || ctx.state !== "running") return;
+  const duration = 1.3;
+  const now = ctx.currentTime + 0.02;
+
+  const buffer = ctx.createBuffer(1, Math.floor(ctx.sampleRate * duration), ctx.sampleRate);
+  const data = buffer.getChannelData(0);
+  let last = 0;
+  for (let i = 0; i < data.length; i++) {
+    // "smeđi" šum — dublji i mekši od bijelog
+    last = (last + 0.02 * (Math.random() * 2 - 1)) / 1.02;
+    data[i] = last * 3.5;
+  }
+  const noise = ctx.createBufferSource();
+  noise.buffer = buffer;
+
+  const filter = ctx.createBiquadFilter();
+  filter.type = "bandpass";
+  filter.Q.value = 3;
+  filter.frequency.setValueAtTime(900, now);
+  filter.frequency.exponentialRampToValueAtTime(220, now + duration);
+
+  const gain = ctx.createGain();
+  gain.gain.setValueAtTime(0, now);
+  gain.gain.linearRampToValueAtTime(0.9, now + 0.08);
+  gain.gain.setValueAtTime(0.9, now + 0.5);
+  gain.gain.exponentialRampToValueAtTime(0.001, now + duration);
+
+  noise.connect(filter).connect(gain).connect(ctx.destination);
+  noise.start(now);
+  noise.stop(now + duration);
+}
+
 /** Kratka svečana melodija kad se otkrije slika */
 export function playCelebration() {
   const ctx = getContext();

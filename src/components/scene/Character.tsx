@@ -4,6 +4,8 @@ import { useRef } from "react";
 import { useFrame, type ThreeElements } from "@react-three/fiber";
 import { MathUtils, type Group } from "three";
 import { AVATARS, SKIN_TONES, type Avatar, type AvatarId } from "@/lib/avatars";
+import type { DrunkLevel } from "@/lib/drunk";
+import VomitStream, { VOMIT_DURATION_MS } from "./VomitStream";
 
 const HEAD_RADIUS = 0.24;
 const PI = Math.PI;
@@ -23,7 +25,15 @@ type CharacterProps = ThreeElements["group"] & {
   color: string;
   /** Gost nije spojen — lik "drijema" pognute glave */
   sleepy?: boolean;
+  /** Razina pijanstva 0–4 (svi je vide) */
+  drunk?: DrunkLevel;
+  /** performance.now() početka povraćanja, ili null */
+  vomitStartedAt?: number | null;
 };
+
+/** Njihanje tijela (amplituda, radijani) i nagib naprijed po razini pijanstva */
+const SWAY_AMPLITUDE: Record<DrunkLevel, number> = { 0: 0.04, 1: 0.07, 2: 0.12, 3: 0.2, 4: 0.22 };
+const LEAN: Record<DrunkLevel, number> = { 0: 0, 1: 0, 2: 0.05, 3: 0.12, 4: 0.14 };
 
 /**
  * "Chibi" čovječuljak koji sjedi na stolici.
@@ -32,7 +42,16 @@ type CharacterProps = ThreeElements["group"] & {
  *
  * Napomena za SphereGeometry: kut phi = π/2 je lice (+Z), phi ∈ (π, 2π) je zatiljak (−Z).
  */
-export default function Character({ seed, avatar, skin, color, sleepy = false, ...groupProps }: CharacterProps) {
+export default function Character({
+  seed,
+  avatar,
+  skin,
+  color,
+  sleepy = false,
+  drunk = 0,
+  vomitStartedAt = null,
+  ...groupProps
+}: CharacterProps) {
   const look = AVATARS[avatar] ?? AVATARS.m1;
   const skinColor = SKIN_TONES[skin] ?? SKIN_TONES[1];
   const phase = (hashString(seed) % 628) / 100;
@@ -40,20 +59,26 @@ export default function Character({ seed, avatar, skin, color, sleepy = false, .
 
   const upperRef = useRef<Group>(null);
 
-  // Lagano "disanje" i njihanje glave da lik ne izgleda kao kip
+  // "Disanje" i njihanje; pijani se njišu jače i sporije, a dok povraćaju nagnu se naprijed
   useFrame(({ clock }, delta) => {
     const g = upperRef.current;
     if (!g) return;
     const t = clock.getElapsedTime() + phase;
     const breathing = sleepy ? 0.6 : 1.6;
+    const vomitAge = vomitStartedAt === null ? -1 : performance.now() - vomitStartedAt;
+    const vomiting = vomitAge >= 0 && vomitAge < VOMIT_DURATION_MS;
+
     g.position.y = Math.sin(t * breathing) * 0.012;
-    g.rotation.z = sleepy ? 0 : Math.sin(t * 0.7) * 0.04;
-    g.rotation.x = MathUtils.damp(g.rotation.x, sleepy ? 0.35 : 0, 3, delta);
+    const swaySpeed = drunk >= 2 ? 0.45 : 0.7;
+    g.rotation.z = sleepy || vomiting ? 0 : Math.sin(t * swaySpeed) * SWAY_AMPLITUDE[drunk];
+    const lean = sleepy ? 0.35 : vomiting ? 0.5 + Math.sin(vomitAge / 90) * 0.04 : LEAN[drunk];
+    g.rotation.x = MathUtils.damp(g.rotation.x, lean, vomiting ? 8 : 3, delta);
   });
 
   return (
     <group {...groupProps}>
       <Chair />
+      <VomitStream startedAt={vomitStartedAt} />
 
       {/* Noge */}
       {[-0.1, 0.1].map((x) => (
@@ -89,7 +114,7 @@ export default function Character({ seed, avatar, skin, color, sleepy = false, .
             <sphereGeometry args={[HEAD_RADIUS, 24, 18]} />
             <meshStandardMaterial color={skinColor} roughness={0.6} />
           </mesh>
-          <Face look={look} skinColor={skinColor} />
+          <Face look={look} skinColor={skinColor} drunk={drunk} />
           <Hair look={look} />
           <FacialHair look={look} />
           {look.glasses && <Glasses />}
@@ -119,13 +144,13 @@ function Chair() {
   );
 }
 
-function Face({ look, skinColor }: { look: Avatar; skinColor: string }) {
+function Face({ look, skinColor, drunk }: { look: Avatar; skinColor: string; drunk: DrunkLevel }) {
   const female = look.gender === "f";
   return (
     <>
-      {/* Oči */}
+      {/* Oči (jako pijani žmire) */}
       {[-0.08, 0.08].map((x) => (
-        <mesh key={x} position={[x, 0.01, 0.215]}>
+        <mesh key={x} position={[x, 0.01, 0.215]} scale={[1, drunk >= 3 ? 0.35 : 1, 1]}>
           <sphereGeometry args={[0.028, 10, 8]} />
           <meshStandardMaterial color="#1a1a1a" roughness={0.3} />
         </mesh>
@@ -138,10 +163,18 @@ function Face({ look, skinColor }: { look: Avatar; skinColor: string }) {
             <meshStandardMaterial color="#1a1a1a" />
           </mesh>
         ))}
-      {/* Nos */}
+      {/* Crveni obrazi */}
+      {drunk >= 2 &&
+        [-1, 1].map((side) => (
+          <mesh key={side} position={[side * 0.13, -0.05, 0.19]} scale={[1, 0.6, 0.4]}>
+            <sphereGeometry args={[0.045, 12, 8]} />
+            <meshStandardMaterial color="#ff5a6e" roughness={0.8} transparent opacity={0.55 + drunk * 0.08} />
+          </mesh>
+        ))}
+      {/* Nos (pijanima pocrveni) */}
       <mesh position={[0, -0.025, 0.238]}>
         <sphereGeometry args={[0.026, 10, 8]} />
-        <meshStandardMaterial color={skinColor} roughness={0.6} />
+        <meshStandardMaterial color={drunk >= 3 ? "#e8606a" : skinColor} roughness={0.6} />
       </mesh>
       {/* Osmijeh (žene s ružem) */}
       <mesh position={[0, -0.085, 0.208]} rotation-z={PI}>
