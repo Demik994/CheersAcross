@@ -42,6 +42,7 @@ export default function SceneTelevision({
   // Svaki frame: gdje su kutovi ekrana na zaslonu → YouTube player se lijepi na njih
   useFrame((state) => {
     const screen = screenRef.current;
+    // Slika slavlja stoji ispred televizora — video bi je prekrio, pa se tada vidi 3D ekran
     if (!screen || hidden) {
       bridge.place(null);
       return;

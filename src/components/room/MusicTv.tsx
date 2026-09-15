@@ -239,12 +239,11 @@ export default function MusicTv({ music, serverOffset, voiceLevels, isHost, brid
 
   return (
     <>
-      {/* Pravi YouTube player — scena ga svaki frame postavi na ekran televizora (ili u kut) */}
+      {/* Pravi YouTube player — scena ga svaki frame postavi na ekran televizora */}
       <div
         ref={screenRef}
-        data-mode="dock"
-        className="pointer-events-none absolute top-0 left-0 z-[1] origin-top-left overflow-hidden rounded-[19px] bg-black data-[mode=dock]:ring-8 data-[mode=dock]:ring-stone-800"
-        style={{ width: TV_ELEMENT_PX, height: TV_ELEMENT_PX, transform: "scale(0)" }}
+        className="pointer-events-none invisible absolute top-0 left-0 z-[1] origin-top-left overflow-hidden rounded-[19px] bg-black"
+        style={{ width: TV_ELEMENT_PX, height: TV_ELEMENT_PX }}
       >
         <div ref={hostRef} className="size-full" />
         {showStatic && (

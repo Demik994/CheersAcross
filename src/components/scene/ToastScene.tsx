@@ -155,7 +155,7 @@ export default function ToastScene({
         maxPolarAngle={Math.PI * 0.45}
       />
       <CameraRig revealed={photoRevealed} watchTv={tv?.watching ?? false} />
-      {/* Slika slavlja ne smije stajati ispred videa — dok je otkrivena, video je u kutu */}
+      {/* Dok je slika slavlja otkrivena, video se skrije (inače bi je prekrio) */}
       {tv && <SceneTelevision {...tv} hidden={photoRevealed} />}
       {/* Iscrtava scenu — s "pijanim" pogledom ako sam popio */}
       <DrunkVision level={levelOf(meId)} />

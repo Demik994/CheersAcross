@@ -1,7 +1,7 @@
 "use client";
 
 import { useRouter } from "next/navigation";
-import { useEffect, useState, useSyncExternalStore } from "react";
+import { useEffect, useState } from "react";
 import SceneLoader from "@/components/scene/SceneLoader";
 import DrinkMenu from "@/components/ui/DrinkMenu";
 import PhotoUpload from "@/components/ui/PhotoUpload";
@@ -82,7 +82,6 @@ export default function RoomView({ code, session }: { code: string; session: Gue
   const [musicOpen, setMusicOpen] = useState(false);
   const [tvBridge] = useState(() => new TvScreenBridge());
   const musicPreference = useMusicPreference();
-  const tvMode = useSyncExternalStore(tvBridge.subscribe, tvBridge.getMode, () => "dock" as const);
   /** Za koju fazu runde je gost poslao kameru do televizora (nova faza = natrag za stol) */
   const [watchingKey, setWatchingKey] = useState<string | null>(null);
 
@@ -230,7 +229,7 @@ export default function RoomView({ code, session }: { code: string; session: Gue
         tv={tv}
       />
 
-      <header data-tv-bound="top" className="pointer-events-none absolute inset-x-0 top-0 z-10 flex items-start justify-between gap-2 px-3 pt-[max(0.75rem,env(safe-area-inset-top))]">
+      <header className="pointer-events-none absolute inset-x-0 top-0 z-10 flex items-start justify-between gap-2 px-3 pt-[max(0.75rem,env(safe-area-inset-top))]">
         <button
           type="button"
           onClick={() => setGuestListOpen(true)}
@@ -299,23 +298,19 @@ export default function RoomView({ code, session }: { code: string; session: Gue
         />
       )}
 
-      {tv && (watchingTv || (tvMode === "dock" && live?.phase === "lobby" && !photoRevealed)) && (
+      {watchingTv && (
         <button
           type="button"
-          onClick={() => setWatchingKey(watchingTv ? null : phaseKey)}
-          className={`absolute z-10 h-9 rounded-full bg-stone-900/80 px-3 text-xs font-semibold shadow-lg backdrop-blur active:bg-stone-800 ${
-            watchingTv
-              ? "top-[calc(max(0.75rem,env(safe-area-inset-top))+3.25rem)] left-1/2 -translate-x-1/2"
-              : "top-[calc(max(0.75rem,env(safe-area-inset-top))+2.5rem+228px)] right-3"
-          }`}
+          onClick={() => setWatchingKey(null)}
+          className="absolute top-[calc(max(0.75rem,env(safe-area-inset-top))+3.25rem)] left-1/2 z-10 h-9 -translate-x-1/2 rounded-full bg-stone-900/80 px-3 text-xs font-semibold shadow-lg backdrop-blur active:bg-stone-800"
         >
-          {watchingTv ? "↩ Natrag za stol" : "📺 Gledaj na televizoru"}
+          ↩ Natrag za stol
         </button>
       )}
 
       <section className="pointer-events-none absolute inset-x-0 bottom-0 z-10 bg-gradient-to-t from-background via-background/90 to-transparent px-4 pt-10 pb-[max(1rem,env(safe-area-inset-bottom))]">
         {/* pointer-events samo na kontrolama, da se čaša može vući i iza gradijenta */}
-        <div data-tv-bound="bottom" className="pointer-events-auto mx-auto flex max-w-xl flex-col gap-3">
+        <div className="pointer-events-auto mx-auto flex max-w-xl flex-col gap-3">
           {voice.micError && (
             <div role="alert" className="flex items-center gap-2 rounded-xl bg-red-500/15 px-3 py-2 text-xs text-red-200">
               <span className="flex-1">{voice.micError}</span>
