@@ -11,11 +11,12 @@ type Props = {
   isHost: boolean;
   live: LiveInfo | null;
   onKick: (guest: PublicGuest) => Promise<void>;
+  onLeave: () => void;
   onClose: () => void;
 };
 
 /** Popis gostiju: tko je spojen, tko je spreman; domaćin može ukloniti gosta */
-export default function GuestListSheet({ guests, meId, isHost, live, onKick, onClose }: Props) {
+export default function GuestListSheet({ guests, meId, isHost, live, onKick, onLeave, onClose }: Props) {
   const [busyId, setBusyId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
@@ -52,6 +53,8 @@ export default function GuestListSheet({ guests, meId, isHost, live, onKick, onC
             const online = live === null || live.online.has(guest.id);
             const ready = live?.ready.has(guest.id) ?? false;
             const drinks = live?.intoxication.get(guest.id) ?? 0;
+            const peer = live?.peers.find((p) => p.guestId === guest.id);
+            const voiceIcon = !peer ? "" : !peer.mic ? " · ⌨️" : peer.muted ? " · 🔇" : " · 🎤";
             const level = DRUNK_LEVELS[drunkLevel(drinks)];
             return (
               <li key={guest.id} className="flex min-h-12 items-center gap-3 rounded-xl px-2 py-1.5">
@@ -64,6 +67,7 @@ export default function GuestListSheet({ guests, meId, isHost, live, onKick, onC
                   </span>
                   <span className={`text-xs ${online ? "text-emerald-300/80" : "text-foreground/45"}`}>
                     {online ? "spojen" : "💤 nije spojen"}
+                    {voiceIcon}
                     {ready && " · 🥂 spreman"}
                     {drinks > 0 && (
                       <span className="text-foreground/55">
@@ -93,6 +97,14 @@ export default function GuestListSheet({ guests, meId, isHost, live, onKick, onC
             {error}
           </p>
         )}
+        <button
+          type="button"
+          onClick={onLeave}
+          className="mt-3 h-11 w-full rounded-xl border border-white/15 text-sm font-semibold text-foreground/80 active:bg-white/10"
+        >
+          🚪 Izađi iz sobe
+        </button>
+
         {isHost && (
           <p className="mt-3 text-xs text-foreground/45">
             Nazdravljanje čeka sve goste. Ako je netko otišao, ukloni ga da ostali mogu nazdraviti.

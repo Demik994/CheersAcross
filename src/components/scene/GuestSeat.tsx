@@ -3,8 +3,9 @@
 import { useRef } from "react";
 import { useFrame } from "@react-three/fiber";
 import { Html } from "@react-three/drei";
-import { MathUtils, type Group } from "three";
+import { MathUtils, type Group, type Mesh, type MeshBasicMaterial } from "three";
 import { DRUNK_LEVELS, type DrunkLevel } from "@/lib/drunk";
+import type { Peer } from "@/lib/party/protocol";
 import type { PublicGuest } from "@/lib/rooms/types";
 import Character from "./Character";
 import { SEAT_RADIUS, angleDelta } from "@/lib/party/geometry";
@@ -22,16 +23,44 @@ type Props = {
   showLabel: boolean;
   drunk: DrunkLevel;
   vomitStartedAt: number | null;
+  bubble: { text: string; id: number } | null;
+  /** null = gost nije spojen */
+  voice: Peer | null;
+  voiceLevels: ReadonlyMap<string, number>;
 };
 
 /**
  * Jedno mjesto za stolom: čovječuljak i ime iznad glave.
  * Kad netko uđe ili izađe, mjesta se preraspodijele — lik glatko "klizi" oko stola.
  */
-export default function GuestSeat({ guest, angle, isMe, offline, badge, showLabel, drunk, vomitStartedAt }: Props) {
+export default function GuestSeat({
+  guest,
+  angle,
+  isMe,
+  offline,
+  badge,
+  showLabel,
+  drunk,
+  vomitStartedAt,
+  bubble,
+  voice,
+  voiceLevels,
+}: Props) {
   const pivotRef = useRef<Group>(null);
+  const ringRef = useRef<Mesh>(null);
+  /** Glasnoća govora 0..1 — Character po njoj otvara usta */
+  const talk = useRef(0);
 
   useFrame((_, delta) => {
+    // Govor: usta i zeleni prsten oko ramena
+    talk.current = MathUtils.damp(talk.current, voiceLevels.get(guest.id) ?? 0, 14, delta);
+    const ring = ringRef.current;
+    if (ring) {
+      ring.visible = talk.current > 0.04;
+      (ring.material as MeshBasicMaterial).opacity = Math.min(0.9, talk.current * 1.6);
+      ring.scale.setScalar(1 + talk.current * 0.25);
+    }
+
     const pivot = pivotRef.current;
     if (!pivot) return;
     const diff = angleDelta(pivot.rotation.y, angle);
@@ -50,9 +79,32 @@ export default function GuestSeat({ guest, angle, isMe, offline, badge, showLabe
         sleepy={offline}
         drunk={drunk}
         vomitStartedAt={vomitStartedAt}
+        talkRef={talk}
         position={[0, TABLE_TOP_Y, SEAT_RADIUS]}
         rotation-y={Math.PI}
       />
+
+      {/* Prsten dok gost priča */}
+      <mesh ref={ringRef} position={[0, TABLE_TOP_Y + 0.3, SEAT_RADIUS]} rotation-x={-Math.PI / 2} visible={false}>
+        <ringGeometry args={[0.34, 0.4, 40]} />
+        <meshBasicMaterial color="#4ade80" transparent opacity={0} depthWrite={false} />
+      </mesh>
+
+      {bubble && showLabel && (
+        <Html
+          position={isMe ? [0, TABLE_TOP_Y + 1.02, SEAT_RADIUS] : [0, TABLE_TOP_Y + 1.12, SEAT_RADIUS + 0.05]}
+          zIndexRange={[7, 1]}
+          style={{ pointerEvents: "none" }}
+        >
+          {/* Dno oblačića (vrh "repa") je na točki iznad glave */}
+          <div key={bubble.id} className="chat-bubble -translate-x-1/2 -translate-y-full pb-2">
+            <div className="relative w-max max-w-44 rounded-2xl bg-white px-3 py-1.5 text-center text-sm leading-snug font-medium break-words whitespace-normal text-stone-900 shadow-xl">
+              {bubble.text}
+              <span className="absolute -bottom-1.5 left-1/2 size-3 -translate-x-1/2 rotate-45 bg-white" aria-hidden />
+            </div>
+          </div>
+        </Html>
+      )}
 
       {showLabel && (
       <Html
@@ -74,6 +126,8 @@ export default function GuestSeat({ guest, angle, isMe, offline, badge, showLabe
           {badge && <span aria-label={badge.label}>{badge.icon}</span>}
           {drunk > 0 && <span aria-label={DRUNK_LEVELS[drunk].label}>{DRUNK_LEVELS[drunk].emoji}</span>}
           {offline && <span aria-label="nije spojen">💤</span>}
+          {voice && !voice.mic && <span aria-label="piše umjesto govora">⌨️</span>}
+          {voice?.mic && voice.muted && <span aria-label="utišan">🔇</span>}
         </div>
       </Html>
       )}

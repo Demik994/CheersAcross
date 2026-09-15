@@ -8,11 +8,14 @@ import {
   seatAngle,
 } from "../../src/lib/party/geometry";
 import {
+  CHAT_MIN_INTERVAL_MS,
   MAX_GLASS_RADIUS,
   PARTY_NAME,
+  sanitizeChat,
   type ClientMessage,
   type GlassPosition,
   type LiveSnapshot,
+  type Peer,
   type RoomUpdate,
   type ServerMessage,
   type ToastPhase,
@@ -21,11 +24,13 @@ import { verifyTicket } from "../../src/lib/party/ticket";
 import { VOMIT_LEVEL, afterDrinking, drunkLevel } from "../../src/lib/drunk";
 import type { RoomState } from "../../src/lib/rooms/types";
 
-type ConnectionState = { guestId: string };
+type ConnectionState = { guestId: string; mic?: boolean; muted?: boolean };
 type GuestConnection = Connection<ConnectionState>;
 
 const GUEST_HEADER = "x-cheers-guest-id";
 const MAX_MESSAGE_BYTES = 2048;
+/** WebRTC SDP opisi su veći od običnih poruka */
+const MAX_SIGNAL_BYTES = 16_000;
 /** Isti par čaša ne može "zazvoniti" češće od ovoga (ms) */
 const CLINK_COOLDOWN_MS = 500;
 /** Histereza: par se mora razdvojiti malo više prije novog kucanja */
@@ -56,6 +61,7 @@ export class ToastRoom extends Server<Env> {
   private held = new Map<string, GlassPosition>();
   private touching = new Set<string>();
   private lastClinkAt = new Map<string, number>();
+  private lastChatAt = new Map<string, number>();
 
   async onStart() {
     const stored = await this.ctx.storage.get<unknown>(["room", "ready", "clinked", "phase", "intoxication", "vomiting"]);
@@ -90,7 +96,7 @@ export class ToastRoom extends Server<Env> {
 
   async onMessage(connection: GuestConnection, raw: WSMessage) {
     const guestId = connection.state?.guestId;
-    if (!guestId || typeof raw !== "string" || raw.length > MAX_MESSAGE_BYTES) return;
+    if (!guestId || typeof raw !== "string" || raw.length > MAX_SIGNAL_BYTES) return;
 
     let message: ClientMessage;
     try {
@@ -98,6 +104,7 @@ export class ToastRoom extends Server<Env> {
     } catch {
       return;
     }
+    if (message.type !== "signal" && raw.length > MAX_MESSAGE_BYTES) return;
 
     switch (message.type) {
       case "ready": {
@@ -122,6 +129,27 @@ export class ToastRoom extends Server<Env> {
         }
         this.broadcastMessage({ type: "glass", guestId, position }, [connection.id]);
         if (position) await this.detectClinks(guestId, previous, position);
+        return;
+      }
+      case "chat": {
+        const text = sanitizeChat(message.text);
+        const now = Date.now();
+        if (!text || now - (this.lastChatAt.get(guestId) ?? 0) < CHAT_MIN_INTERVAL_MS) return;
+        this.lastChatAt.set(guestId, now);
+        this.broadcastMessage({ type: "chat", guestId, text });
+        return;
+      }
+      case "voice": {
+        connection.setState({ guestId, mic: message.mic === true, muted: message.muted === true });
+        this.broadcastSnapshot();
+        return;
+      }
+      case "signal": {
+        // Signalizacija ide samo drugom pregledniku u ovoj istoj sobi
+        if (typeof message.to !== "string" || message.to === connection.id) return;
+        const target = this.getConnection(message.to);
+        if (!target) return;
+        this.send(target, { type: "signal", from: connection.id, data: message.data });
         return;
       }
       case "reset": {
@@ -314,6 +342,16 @@ export class ToastRoom extends Server<Env> {
     return online;
   }
 
+  private peers(excludeConnectionId?: string): Peer[] {
+    const peers: Peer[] = [];
+    for (const connection of this.getConnections<ConnectionState>()) {
+      const state = connection.state;
+      if (connection.id === excludeConnectionId || !state?.guestId) continue;
+      peers.push({ id: connection.id, guestId: state.guestId, mic: state.mic === true, muted: state.muted === true });
+    }
+    return peers;
+  }
+
   private broadcastSnapshot(excludeConnectionId?: string) {
     const snapshot: LiveSnapshot = {
       type: "sync",
@@ -324,6 +362,7 @@ export class ToastRoom extends Server<Env> {
       phase: this.phase,
       intoxication: this.intoxication,
       vomiting: this.vomiting,
+      peers: this.peers(excludeConnectionId),
     };
     this.broadcastMessage(snapshot);
   }

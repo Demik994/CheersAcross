@@ -39,6 +39,9 @@ export async function GET() {
     ]),
   );
 
+  // Glasovni chat radi i bez TURN-a (samo STUN), pa ne ulazi u "ok"
+  const turn = Boolean(readEnv(...envNames.turnKeyId) && readEnv(...envNames.turnApiToken));
+
   const ok = redis && blob && secretMatches;
   return Response.json(
     {
@@ -46,6 +49,7 @@ export async function GET() {
       redis,
       blob,
       storageEnvLengths,
+      turn,
       deployment: process.env.VERCEL_ENV ?? "local",
       party: { url: Boolean(partyUrl), secret: Boolean(partySecretValue), reachable: partyReachable, secretMatches },
     },

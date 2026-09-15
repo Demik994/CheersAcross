@@ -84,6 +84,9 @@ export const roomApi = {
   ticket: (code: string, session: GuestSession) =>
     request<{ ticket: string; host: string }>(`${roomPath(code)}/ticket`, { session }),
 
+  ice: (code: string, session: GuestSession) =>
+    request<{ iceServers: RTCIceServer[]; turn: boolean }>(`${roomPath(code)}/ice`, { session }),
+
   kick: (code: string, session: GuestSession, guestId: string) =>
     request<void>(`${roomPath(code)}/guests/${encodeURIComponent(guestId)}`, { method: "DELETE", session }),
 };

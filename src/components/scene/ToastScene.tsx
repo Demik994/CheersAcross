@@ -3,7 +3,7 @@
 import type { RefObject } from "react";
 import { Canvas } from "@react-three/fiber";
 import { ContactShadows, Environment, Lightformer, OrbitControls } from "@react-three/drei";
-import type { ClinkEvent, GlassTargets, LiveInfo } from "@/hooks/useLiveRoom";
+import type { ChatBubbles, ClinkEvent, GlassTargets, LiveInfo } from "@/hooks/useLiveRoom";
 import { drunkLevel } from "@/lib/drunk";
 import { DRINK_DURATION_MS, REVEAL_ALREADY_DONE, seatAngle } from "@/lib/party/geometry";
 import type { GlassPosition } from "@/lib/party/protocol";
@@ -27,6 +27,10 @@ export type ToastSceneProps = {
   live: LiveInfo | null;
   glassTargets: RefObject<GlassTargets>;
   clinkEvents: RefObject<ClinkEvent[]>;
+  /** Poruke koje se trenutno prikazuju u oblačićima */
+  bubbles: ChatBubbles;
+  /** Glasnoća govora po gostu (0..1), mijenja se u pozadini */
+  voiceLevels: ReadonlyMap<string, number>;
   onMyGlassMove: (position: GlassPosition | null) => void;
   /** performance.now() početka pijenja (null = runda nije gotova) */
   revealStartedAt: number | null;
@@ -47,6 +51,8 @@ export default function ToastScene({
   live,
   glassTargets,
   clinkEvents,
+  bubbles,
+  voiceLevels,
   onMyGlassMove,
   revealStartedAt,
   photoUrl,
@@ -102,6 +108,9 @@ export default function ToastScene({
                 badge={badgeFor(live, guest.id)}
                 showLabel={!photoRevealed}
                 drunk={levelOf(guest.id)}
+                bubble={bubbles.get(guest.id) ?? null}
+                voice={live?.peers.find((p) => p.guestId === guest.id) ?? null}
+                voiceLevels={voiceLevels}
                 vomitStartedAt={live?.vomiting.has(guest.id) ? vomitAt : null}
               />
               <GuestGlass

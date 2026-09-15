@@ -6,6 +6,9 @@ import SceneLoader from "@/components/scene/SceneLoader";
 import DrinkMenu from "@/components/ui/DrinkMenu";
 import PhotoUpload from "@/components/ui/PhotoUpload";
 import { useLiveRoom } from "@/hooks/useLiveRoom";
+import { useVoiceChat } from "@/hooks/useVoiceChat";
+import type { Peer } from "@/lib/party/protocol";
+import { saveVoiceMode, useVoiceMode, type VoiceMode } from "@/lib/voicePreference";
 import type { DrinkId } from "@/lib/drinks";
 import { roomApi, type Look } from "@/lib/roomApi";
 import type { GuestSession, PublicGuest } from "@/lib/rooms/types";
@@ -15,11 +18,15 @@ import { playCelebration, playVomit, unlockAudio } from "@/lib/sound";
 import { DRUNK_LEVELS, drunkLevel } from "@/lib/drunk";
 import { VOMIT_DURATION_MS } from "@/components/scene/VomitStream";
 import AvatarSheet from "./AvatarSheet";
+import ChatInput from "./ChatInput";
 import GuestListSheet from "./GuestListSheet";
 import InviteButton from "./InviteButton";
 import { FullscreenMessage } from "./RoomClient";
 import RoomGone from "./RoomGone";
 import ToastPanel from "./ToastPanel";
+import VoiceChoiceDialog from "./VoiceChoiceDialog";
+
+const NO_PEERS: readonly Peer[] = [];
 
 export default function RoomView({ code, session }: { code: string; session: GuestSession }) {
   const router = useRouter();
@@ -36,7 +43,26 @@ export default function RoomView({ code, session }: { code: string; session: Gue
     setReady,
     moveGlass,
     startNewRound,
+    sendChat,
+    bubbles,
+    send,
+    registerSignalHandler,
+    connectionId,
   } = useLiveRoom(code, session);
+  const voiceMode = useVoiceMode(code);
+  const [muted, setMuted] = useState(false);
+  const [voiceChoiceOpen, setVoiceChoiceOpen] = useState(false);
+  const voice = useVoiceChat({
+    code,
+    session,
+    mode: voiceMode ?? null,
+    muted,
+    connected,
+    connectionId,
+    peers: live?.peers ?? NO_PEERS,
+    send,
+    registerSignalHandler,
+  });
   /** Za koju rundu (revealStartedAt) je animacija pijenja završila */
   const [celebratedRound, setCelebratedRound] = useState<number | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
@@ -120,6 +146,13 @@ export default function RoomView({ code, session }: { code: string; session: Gue
     mutate((s) => ({ ...s, guests: s.guests.filter((g) => g.id !== guest.id) }));
   }
 
+  function chooseVoice(mode: VoiceMode) {
+    unlockAudio();
+    voice.dismissMicError();
+    saveVoiceMode(code, mode);
+    setVoiceChoiceOpen(false);
+  }
+
   async function leave() {
     const message = isHost
       ? "Ti si domaćin. Ako izađeš, nitko više neće moći mijenjati sliku ni uklanjati goste. Izaći iz sobe?"
@@ -142,6 +175,8 @@ export default function RoomView({ code, session }: { code: string; session: Gue
         live={live}
         glassTargets={glassTargets}
         clinkEvents={clinkEvents}
+        bubbles={bubbles}
+        voiceLevels={voice.levels}
         onMyGlassMove={moveGlass}
         revealStartedAt={revealStartedAt}
         photoUrl={state.photoUrl}
@@ -180,20 +215,51 @@ export default function RoomView({ code, session }: { code: string; session: Gue
               🧑
             </button>
           )}
-          <button
-            type="button"
-            onClick={() => void leave()}
-            aria-label="Izađi iz sobe"
-            className="pointer-events-auto flex size-10 items-center justify-center rounded-full bg-stone-900/75 text-lg shadow-lg backdrop-blur active:bg-stone-800"
-          >
-            🚪
-          </button>
+          {voiceMode === "mic" && voice.micOn ? (
+            <button
+              type="button"
+              onClick={() => setMuted((m) => !m)}
+              aria-label={muted ? "Uključi mikrofon" : "Utišaj mikrofon"}
+              aria-pressed={muted}
+              className={`pointer-events-auto flex size-10 items-center justify-center rounded-full text-lg shadow-lg backdrop-blur ${
+                muted ? "bg-red-500/80 active:bg-red-500" : "bg-emerald-500/80 active:bg-emerald-500"
+              }`}
+            >
+              {muted ? "🔇" : "🎤"}
+            </button>
+          ) : (
+            <button
+              type="button"
+              onClick={() => setVoiceChoiceOpen(true)}
+              aria-label="Način razgovora"
+              className="pointer-events-auto flex size-10 items-center justify-center rounded-full bg-stone-900/75 text-lg shadow-lg backdrop-blur active:bg-stone-800"
+            >
+              ⌨️
+            </button>
+          )}
         </div>
       </header>
 
       <section className="pointer-events-none absolute inset-x-0 bottom-0 z-10 bg-gradient-to-t from-background via-background/90 to-transparent px-4 pt-10 pb-[max(1rem,env(safe-area-inset-bottom))]">
         {/* pointer-events samo na kontrolama, da se čaša može vući i iza gradijenta */}
         <div className="pointer-events-auto mx-auto flex max-w-xl flex-col gap-3">
+          {voice.micError && (
+            <div role="alert" className="flex items-center gap-2 rounded-xl bg-red-500/15 px-3 py-2 text-xs text-red-200">
+              <span className="flex-1">{voice.micError}</span>
+              <button type="button" onClick={() => chooseVoice("text")} className="shrink-0 rounded-lg bg-white/10 px-2 py-1 font-semibold">
+                Tipkanje
+              </button>
+            </div>
+          )}
+          {voice.audioBlocked && (
+            <button
+              type="button"
+              onClick={() => void voice.resumeAudio()}
+              className="h-10 rounded-xl bg-sky-500/20 text-sm font-semibold text-sky-100 active:bg-sky-500/30"
+            >
+              🔊 Dodirni za uključivanje zvuka razgovora
+            </button>
+          )}
           {actionError && (
             <p role="alert" className="text-center text-xs text-red-300">
               {actionError}
@@ -219,8 +285,18 @@ export default function RoomView({ code, session }: { code: string; session: Gue
             // Slika ostaje skrivena gostima dok se svi ne kucnu
             <PhotoUpload photoUrl={state.photoUrl} onUpload={uploadPhoto} onRemove={removePhoto} />
           )}
+
+          <ChatInput onSend={sendChat} disabled={!connected} />
         </div>
       </section>
+
+      {me && (voiceMode === null || voiceChoiceOpen) && (
+        <VoiceChoiceDialog
+          current={voiceMode ?? null}
+          onChoose={chooseVoice}
+          onClose={voiceMode ? () => setVoiceChoiceOpen(false) : undefined}
+        />
+      )}
 
       {avatarOpen && me && (
         <AvatarSheet
@@ -238,6 +314,7 @@ export default function RoomView({ code, session }: { code: string; session: Gue
           isHost={isHost}
           live={live}
           onKick={kick}
+          onLeave={() => void leave()}
           onClose={() => setGuestListOpen(false)}
         />
       )}

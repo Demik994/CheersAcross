@@ -8,7 +8,9 @@ import {
   PARTY_NAME,
   type ClientMessage,
   type GlassPosition,
+  type Peer,
   type ServerMessage,
+  type SignalData,
   type ToastPhase,
 } from "@/lib/party/protocol";
 import type { GuestSession } from "@/lib/rooms/types";
@@ -29,7 +31,17 @@ export type LiveInfo = {
   intoxication: ReadonlyMap<string, number>;
   /** Tko povraća na kraju ove runde */
   vomiting: ReadonlySet<string>;
+  /** Spojeni preglednici i tko koristi mikrofon */
+  peers: readonly Peer[];
 };
+
+/** Zadnja poruka svakog gosta koja se trenutno prikazuje u oblačiću */
+export type ChatBubbles = ReadonlyMap<string, { text: string; id: number }>;
+
+export type SignalHandler = (from: string, data: SignalData) => void;
+
+/** Koliko dugo je oblačić vidljiv: 4 s + ~50 ms po znaku (80 znakova ≈ 8 s) */
+export const bubbleDurationMs = (text: string) => 4000 + Array.from(text).length * 50;
 
 /** Zadnje poznate pozicije tuđih čaša; 3D scena ih čita svaki frame (bez re-rendera) */
 export type GlassTargets = Map<string, GlassPosition | null>;
@@ -50,6 +62,10 @@ export function useLiveRoom(code: string, session: GuestSession) {
   const clinkEvents = useRef<ClinkEvent[]>([]);
   const firstTicket = useRef<string | null>(null);
   const lastPhase = useRef<ToastPhase | null>(null);
+  const [bubbles, setBubbles] = useState<ChatBubbles>(new Map());
+  const bubbleCounter = useRef(0);
+  /** Glasovni chat se ovdje "pretplati" na WebRTC signalizaciju */
+  const signalHandler = useRef<SignalHandler | null>(null);
 
   const handleAuthError = useCallback(
     (err: unknown) => {
@@ -123,6 +139,7 @@ export function useLiveRoom(code: string, session: GuestSession) {
             // `?? …`: stariji real-time server (prije deploya) ne šalje ova polja
             intoxication: new Map(Object.entries(message.intoxication ?? {})),
             vomiting: new Set(message.vomiting ?? []),
+            peers: message.peers ?? [],
           });
 
           const previous = lastPhase.current;
@@ -149,6 +166,24 @@ export function useLiveRoom(code: string, session: GuestSession) {
           clinkEvents.current.push({ at: message.at, time: now });
           return;
         }
+        case "chat": {
+          const id = ++bubbleCounter.current;
+          const { guestId, text } = message;
+          setBubbles((current) => new Map(current).set(guestId, { text, id }));
+          // Ukloni oblačić nakon isteka — osim ako je u međuvremenu stigla nova poruka
+          setTimeout(() => {
+            setBubbles((current) => {
+              if (current.get(guestId)?.id !== id) return current;
+              const next = new Map(current);
+              next.delete(guestId);
+              return next;
+            });
+          }, bubbleDurationMs(text));
+          return;
+        }
+        case "signal":
+          signalHandler.current?.(message.from, message.data);
+          return;
         case "kicked":
           clearSession(code);
           return;
@@ -166,6 +201,10 @@ export function useLiveRoom(code: string, session: GuestSession) {
   const setReady = useCallback((ready: boolean) => send({ type: "ready", ready }), [send]);
   const moveGlass = useCallback((position: GlassPosition | null) => send({ type: "glass", position }), [send]);
   const startNewRound = useCallback(() => send({ type: "reset" }), [send]);
+  const sendChat = useCallback((text: string) => send({ type: "chat", text }), [send]);
+  const registerSignalHandler = useCallback((handler: SignalHandler | null) => {
+    signalHandler.current = handler;
+  }, []);
 
   return {
     ...room,
@@ -177,5 +216,11 @@ export function useLiveRoom(code: string, session: GuestSession) {
     setReady,
     moveGlass,
     startNewRound,
+    sendChat,
+    bubbles,
+    send,
+    registerSignalHandler,
+    /** id ove konekcije (isti kao na serveru) — adresa za WebRTC */
+    connectionId: socket.id,
   };
 }

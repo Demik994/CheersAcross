@@ -8,7 +8,9 @@ kucnu se čašama.
 
 - **Next.js 16** (App Router, TypeScript, Tailwind CSS) — UI i REST API
 - **React Three Fiber + drei** — 3D scena (stol, čaše, likovi)
-- **PartyServer** na Cloudflare Workersima (Durable Objects) — real-time: prisutnost, spremnost, vučenje čaša
+- **PartyServer** na Cloudflare Workersima (Durable Objects) — real-time: prisutnost, spremnost, vučenje čaša,
+  kucanje, pijanstvo, chat i WebRTC signalizacija za glasovni chat
+- **WebRTC** (izravne veze među gostima) + **Cloudflare TURN** — glasovni chat
 - **Upstash Redis** — sobe i gosti (brišu se 24 h nakon kreiranja)
 - **Vercel Blob** — slika razloga slavlja
 
@@ -23,7 +25,9 @@ npm run dev
 `npm run dev` pokreće Next.js na <http://localhost:3000> i real-time server na portu 1999.
 Za lokalni razvoj ne trebaju nikakvi računi: sobe se drže u memoriji, a slike u `.local-uploads/`.
 
-Za testiranje s mobitela na istoj Wi-Fi mreži otvori `http://<IP-računala>:3000`.
+Za testiranje s mobitela na istoj Wi-Fi mreži otvori `http://<IP-računala>:3000`
+(dopušteno u `allowedDevOrigins` u `next.config.ts`). Mikrofon preglednici daju samo preko
+https-a ili na `localhost`, pa glasovni chat s mobitela testiraj na produkciji.
 
 ## Korisne naredbe
 

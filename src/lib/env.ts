@@ -21,6 +21,8 @@ export const envNames = {
   partySecret: ["PARTY_SECRET"],
   partyUrl: ["PARTY_URL"],
   partyPublicHost: ["PARTY_PUBLIC_HOST"],
+  turnKeyId: ["CLOUDFLARE_TURN_KEY_ID"],
+  turnApiToken: ["CLOUDFLARE_TURN_API_TOKEN"],
 } as const;
 
 export const redisUrl = () => readEnv(...envNames.redisUrl);

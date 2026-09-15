@@ -1,8 +1,8 @@
 "use client";
 
-import { useRef } from "react";
+import { useRef, type RefObject } from "react";
 import { useFrame, type ThreeElements } from "@react-three/fiber";
-import { MathUtils, type Group } from "three";
+import { MathUtils, type Group, type Mesh } from "three";
 import { AVATARS, SKIN_TONES, type Avatar, type AvatarId } from "@/lib/avatars";
 import type { DrunkLevel } from "@/lib/drunk";
 import VomitStream, { VOMIT_DURATION_MS } from "./VomitStream";
@@ -29,6 +29,8 @@ type CharacterProps = ThreeElements["group"] & {
   drunk?: DrunkLevel;
   /** performance.now() početka povraćanja, ili null */
   vomitStartedAt?: number | null;
+  /** Glasnoća govora 0..1 (otvaranje usta) */
+  talkRef?: RefObject<number>;
 };
 
 /** Njihanje tijela (amplituda, radijani) i nagib naprijed po razini pijanstva */
@@ -50,6 +52,7 @@ export default function Character({
   sleepy = false,
   drunk = 0,
   vomitStartedAt = null,
+  talkRef,
   ...groupProps
 }: CharacterProps) {
   const look = AVATARS[avatar] ?? AVATARS.m1;
@@ -58,6 +61,7 @@ export default function Character({
   const female = look.gender === "f";
 
   const upperRef = useRef<Group>(null);
+  const mouthRef = useRef<Mesh>(null);
 
   // "Disanje" i njihanje; pijani se njišu jače i sporije, a dok povraćaju nagnu se naprijed
   useFrame(({ clock }, delta) => {
@@ -73,6 +77,13 @@ export default function Character({
     g.rotation.z = sleepy || vomiting ? 0 : Math.sin(t * swaySpeed) * SWAY_AMPLITUDE[drunk];
     const lean = sleepy ? 0.35 : vomiting ? 0.5 + Math.sin(vomitAge / 90) * 0.04 : LEAN[drunk];
     g.rotation.x = MathUtils.damp(g.rotation.x, lean, vomiting ? 8 : 3, delta);
+
+    // Dok priča, osmijeh se "otvara" u usta
+    const mouth = mouthRef.current;
+    if (mouth) {
+      const talk = talkRef?.current ?? 0;
+      mouth.scale.set(1 - talk * 0.25, 1 + talk * 3, 1);
+    }
   });
 
   return (
@@ -114,7 +125,7 @@ export default function Character({
             <sphereGeometry args={[HEAD_RADIUS, 24, 18]} />
             <meshStandardMaterial color={skinColor} roughness={0.6} />
           </mesh>
-          <Face look={look} skinColor={skinColor} drunk={drunk} />
+          <Face look={look} skinColor={skinColor} drunk={drunk} mouthRef={mouthRef} />
           <Hair look={look} />
           <FacialHair look={look} />
           {look.glasses && <Glasses />}
@@ -144,7 +155,17 @@ function Chair() {
   );
 }
 
-function Face({ look, skinColor, drunk }: { look: Avatar; skinColor: string; drunk: DrunkLevel }) {
+function Face({
+  look,
+  skinColor,
+  drunk,
+  mouthRef,
+}: {
+  look: Avatar;
+  skinColor: string;
+  drunk: DrunkLevel;
+  mouthRef: RefObject<Mesh | null>;
+}) {
   const female = look.gender === "f";
   return (
     <>
@@ -177,7 +198,7 @@ function Face({ look, skinColor, drunk }: { look: Avatar; skinColor: string; dru
         <meshStandardMaterial color={drunk >= 3 ? "#e8606a" : skinColor} roughness={0.6} />
       </mesh>
       {/* Osmijeh (žene s ružem) */}
-      <mesh position={[0, -0.085, 0.208]} rotation-z={PI}>
+      <mesh ref={mouthRef} position={[0, -0.085, 0.208]} rotation-z={PI}>
         <torusGeometry args={[0.048, female ? 0.014 : 0.011, 6, 16, PI]} />
         <meshStandardMaterial color={female ? "#b8324f" : "#7a3b2e"} roughness={0.5} />
       </mesh>

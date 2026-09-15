@@ -9,7 +9,8 @@
  */
 let context: AudioContext | null = null;
 
-function getContext(): AudioContext | null {
+/** Zajednički AudioContext (koristi ga i glasovni chat za mjerenje glasnoće) */
+export function getContext(): AudioContext | null {
   if (typeof window === "undefined") return null;
   if (!context) {
     const Ctor = window.AudioContext ?? (window as unknown as { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
