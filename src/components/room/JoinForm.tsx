@@ -1,14 +1,16 @@
 "use client";
 
 import { useState, type FormEvent } from "react";
+import AvatarPicker, { DEFAULT_LOOK } from "@/components/avatar/AvatarPicker";
 import { Field, FormError, PinInput, inputClass, primaryButtonClass } from "@/components/ui/fields";
-import { roomApi } from "@/lib/roomApi";
+import { roomApi, type Look } from "@/lib/roomApi";
 import { NAME_MAX_LENGTH, PIN_LENGTH } from "@/lib/rooms/types";
 import { saveSession } from "@/lib/session";
 
 export default function JoinForm({ code, hasPin }: { code: string; hasPin: boolean }) {
   const [name, setName] = useState("");
   const [pin, setPin] = useState("");
+  const [look, setLook] = useState<Look>(DEFAULT_LOOK);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -21,7 +23,7 @@ export default function JoinForm({ code, hasPin }: { code: string; hasPin: boole
     }
     setBusy(true);
     try {
-      const { session } = await roomApi.join(code, name, hasPin ? pin : null);
+      const { session } = await roomApi.join(code, name, hasPin ? pin : null, look);
       saveSession(code, session); // RoomClient se sam prebaci na pogled sobe
     } catch (err) {
       setError(err instanceof Error ? err.message : "Nešto je pošlo po krivu.");
@@ -55,6 +57,11 @@ export default function JoinForm({ code, hasPin }: { code: string; hasPin: boole
               required
             />
           </Field>
+
+          <div className="flex flex-col gap-1.5">
+            <span className="text-sm font-medium text-foreground/80">Odaberi svoj lik</span>
+            <AvatarPicker value={look} onChange={setLook} />
+          </div>
 
           {hasPin && (
             <Field label="PIN sobe" hint="Domaćin ti ga je trebao poslati uz link.">

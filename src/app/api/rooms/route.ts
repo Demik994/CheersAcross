@@ -5,7 +5,7 @@ import { createRoom } from "@/lib/rooms/service";
 export async function POST(request: Request) {
   return handle(async () => {
     const body = await readJson(request);
-    const result = await createRoom({ hostName: body.name, pin: body.pin });
+    const result = await createRoom({ hostName: body.name, pin: body.pin, avatar: body.avatar, skin: body.skin });
     return Response.json(result, { status: 201 });
   });
 }

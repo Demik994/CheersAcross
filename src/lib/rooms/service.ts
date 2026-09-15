@@ -1,5 +1,6 @@
 import "server-only";
 import { createHash, randomBytes, randomUUID, scryptSync, timingSafeEqual } from "node:crypto";
+import { defaultLook, isAvatarId, isSkinTone, type AvatarId } from "@/lib/avatars";
 import { DEFAULT_DRINK, isDrinkId, normalizeDrinkId, type DrinkId } from "@/lib/drinks";
 import { generateRoomCode } from "./codes";
 import { getRoomStore } from "./store";
@@ -62,13 +63,30 @@ function validatePin(input: unknown): string {
   return input;
 }
 
-function newGuest(name: string, color: string): { guest: GuestRecord; session: GuestSession } {
+type Look = { avatar: AvatarId; skin: number };
+
+/** Odabrani lik; ako nije poslan (ili je neispravan), nasumičan ali stabilan */
+function parseLook(input: { avatar?: unknown; skin?: unknown }, seed: string): Look {
+  const fallback = defaultLook(seed);
+  return {
+    avatar: isAvatarId(input.avatar) ? input.avatar : fallback.avatar,
+    skin: isSkinTone(input.skin) ? input.skin : fallback.skin,
+  };
+}
+
+function newGuest(
+  name: string,
+  color: string,
+  look: { avatar?: unknown; skin?: unknown },
+): { guest: GuestRecord; session: GuestSession } {
   const token = randomBytes(32).toString("base64url");
+  const id = randomUUID();
   const guest: GuestRecord = {
-    id: randomUUID(),
+    id,
     name,
     drink: DEFAULT_DRINK,
     color,
+    ...parseLook(look, id),
     joinedAt: Date.now(),
     tokenHash: hashToken(token),
   };
@@ -83,12 +101,12 @@ async function requireRoom(code: string): Promise<RoomRecord> {
 
 // ---------- javne operacije ----------
 
-export async function createRoom(input: { hostName: unknown; pin?: unknown }) {
+export async function createRoom(input: { hostName: unknown; pin?: unknown; avatar?: unknown; skin?: unknown }) {
   const store = getRoomStore();
   const hostName = validateName(input.hostName);
   const pin = input.pin ? validatePin(input.pin) : null;
 
-  const { guest, session } = newGuest(hostName, GUEST_COLORS[0]);
+  const { guest, session } = newGuest(hostName, GUEST_COLORS[0], input);
   const salt = randomBytes(16).toString("hex");
   const now = Date.now();
 
@@ -116,7 +134,7 @@ export async function getRoomInfo(code: string) {
   return { code: room.code, hasPin: room.pin !== null, expiresAt: room.expiresAt };
 }
 
-export async function joinRoom(code: string, input: { name: unknown; pin?: unknown }) {
+export async function joinRoom(code: string, input: { name: unknown; pin?: unknown; avatar?: unknown; skin?: unknown }) {
   const store = getRoomStore();
   const room = await requireRoom(code);
 
@@ -142,7 +160,7 @@ export async function joinRoom(code: string, input: { name: unknown; pin?: unkno
   const usedColors = new Set(guests.map((g) => g.color));
   const color = GUEST_COLORS.find((c) => !usedColors.has(c)) ?? GUEST_COLORS[guests.length % GUEST_COLORS.length];
 
-  const { guest, session } = newGuest(name, color);
+  const { guest, session } = newGuest(name, color, input);
   await store.putGuest(room, guest);
   return { session };
 }
@@ -168,14 +186,38 @@ export function toRoomState(room: RoomRecord, guests: GuestRecord[]): RoomState 
     guests: guests
       .sort((a, b) => a.joinedAt - b.joinedAt)
       // normalizeDrinkId: gosti spremljeni prije menija pića imaju stare oznake (npr. "wine")
-      .map((g) => ({ id: g.id, name: g.name, drink: normalizeDrinkId(g.drink), color: g.color, isHost: g.id === room.hostId })),
+      .map((g) => {
+        const look = g.avatar !== undefined && g.skin !== undefined ? { avatar: g.avatar, skin: g.skin } : defaultLook(g.id);
+        return { id: g.id, name: g.name, drink: normalizeDrinkId(g.drink), color: g.color, ...look, isHost: g.id === room.hostId };
+      }),
   };
 }
 
-export async function setDrink(code: string, session: GuestSession | null, drink: unknown) {
-  if (!isDrinkId(drink)) throw new RoomError(400, "Nepoznato piće.");
+/** Gost mijenja svoje piće i/ili izgled (šalje samo ono što mijenja) */
+export async function updateMe(
+  code: string,
+  session: GuestSession | null,
+  input: { drink?: unknown; avatar?: unknown; skin?: unknown },
+) {
+  const changes: Partial<Pick<GuestRecord, "drink" | "avatar" | "skin">> = {};
+  if (input.drink !== undefined) {
+    if (!isDrinkId(input.drink)) throw new RoomError(400, "Nepoznato piće.");
+    changes.drink = input.drink as DrinkId;
+  }
+  if (input.avatar !== undefined) {
+    if (!isAvatarId(input.avatar)) throw new RoomError(400, "Nepoznat lik.");
+    changes.avatar = input.avatar;
+  }
+  if (input.skin !== undefined) {
+    if (!isSkinTone(input.skin)) throw new RoomError(400, "Nepoznata boja kože.");
+    changes.skin = input.skin;
+  }
+  if (Object.keys(changes).length === 0) throw new RoomError(400, "Nema promjena.");
+
   const { room, me } = await authenticate(code, session);
-  await getRoomStore().putGuest(room, { ...me, drink: drink as DrinkId });
+  // Stari gosti bez lika: zadrži dosadašnji izgled za dio koji ne mijenjaju
+  const current = me.avatar !== undefined && me.skin !== undefined ? { avatar: me.avatar, skin: me.skin } : defaultLook(me.id);
+  await getRoomStore().putGuest(room, { ...me, ...current, ...changes });
 }
 
 export async function leaveRoom(code: string, session: GuestSession | null) {

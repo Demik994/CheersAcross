@@ -1,3 +1,4 @@
+import type { AvatarId } from "@/lib/avatars";
 import type { DrinkId } from "@/lib/drinks";
 
 export const ROOM_TTL_MS = 24 * 60 * 60 * 1000;
@@ -21,6 +22,9 @@ export type GuestRecord = {
   name: string;
   drink: DrinkId;
   color: string;
+  /** Nema ih kod gostiju spremljenih prije odabira likova */
+  avatar?: AvatarId;
+  skin?: number;
   joinedAt: number;
   tokenHash: string;
 };
@@ -31,6 +35,8 @@ export type PublicGuest = {
   name: string;
   drink: DrinkId;
   color: string;
+  avatar: AvatarId;
+  skin: number;
   isHost: boolean;
 };
 

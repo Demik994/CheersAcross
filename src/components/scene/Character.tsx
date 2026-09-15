@@ -3,9 +3,10 @@
 import { useRef } from "react";
 import { useFrame, type ThreeElements } from "@react-three/fiber";
 import { MathUtils, type Group } from "three";
+import { AVATARS, SKIN_TONES, type Avatar, type AvatarId } from "@/lib/avatars";
 
-const SKIN_TONES = ["#f1c6a5", "#e0ac86", "#c68863", "#8d5a3b", "#f6d7c3"];
-const HAIR_COLORS = ["#2b1b12", "#5a3a22", "#a8652a", "#d9b36c", "#1e1e24", "#7a2e1f"];
+const HEAD_RADIUS = 0.24;
+const PI = Math.PI;
 
 function hashString(value: string) {
   let h = 0;
@@ -14,22 +15,28 @@ function hashString(value: string) {
 }
 
 type CharacterProps = ThreeElements["group"] & {
+  /** Samo za fazu animacije, da se likovi ne njišu u istom ritmu */
   seed: string;
+  avatar: AvatarId;
+  skin: number;
+  /** Boja odjeće */
   color: string;
   /** Gost nije spojen — lik "drijema" pognute glave */
   sleepy?: boolean;
 };
 
 /**
- * Jednostavan "chibi" čovječuljak koji sjedi na stolici.
+ * "Chibi" čovječuljak koji sjedi na stolici.
  * Lokalna +Z os je smjer lica — roditelj ga okreće prema sredini stola.
  * Visine su u odnosu na ploču stola (y = 0); pod je na y = -1.1.
+ *
+ * Napomena za SphereGeometry: kut phi = π/2 je lice (+Z), phi ∈ (π, 2π) je zatiljak (−Z).
  */
-export default function Character({ seed, color, sleepy = false, ...groupProps }: CharacterProps) {
-  const hash = hashString(seed);
-  const skin = SKIN_TONES[hash % SKIN_TONES.length];
-  const hair = HAIR_COLORS[(hash >> 3) % HAIR_COLORS.length];
-  const phase = (hash % 628) / 100;
+export default function Character({ seed, avatar, skin, color, sleepy = false, ...groupProps }: CharacterProps) {
+  const look = AVATARS[avatar] ?? AVATARS.m1;
+  const skinColor = SKIN_TONES[skin] ?? SKIN_TONES[1];
+  const phase = (hashString(seed) % 628) / 100;
+  const female = look.gender === "f";
 
   const upperRef = useRef<Group>(null);
 
@@ -46,7 +53,56 @@ export default function Character({ seed, color, sleepy = false, ...groupProps }
 
   return (
     <group {...groupProps}>
-      {/* Stolica */}
+      <Chair />
+
+      {/* Noge */}
+      {[-0.1, 0.1].map((x) => (
+        <group key={x}>
+          <mesh position={[x, -0.42, 0.14]} rotation-x={PI / 2}>
+            <capsuleGeometry args={[0.075, 0.2, 4, 10]} />
+            <meshStandardMaterial color="#34405a" roughness={0.8} />
+          </mesh>
+          <mesh position={[x, -0.72, 0.3]}>
+            <capsuleGeometry args={[0.07, 0.42, 4, 10]} />
+            <meshStandardMaterial color="#34405a" roughness={0.8} />
+          </mesh>
+        </group>
+      ))}
+
+      <group ref={upperRef}>
+        {/* Tijelo (žene malo užih ramena) */}
+        <mesh position={[0, -0.08, 0]}>
+          <capsuleGeometry args={[female ? 0.215 : 0.24, 0.36, 6, 16]} />
+          <meshStandardMaterial color={color} roughness={0.65} />
+        </mesh>
+
+        {/* Ruke, blago ispružene prema stolu */}
+        {[-1, 1].map((side) => (
+          <mesh key={side} position={[side * (female ? 0.26 : 0.28), 0.02, 0.12]} rotation={[0.9, 0, side * -0.25]}>
+            <capsuleGeometry args={[0.065, 0.3, 4, 10]} />
+            <meshStandardMaterial color={color} roughness={0.65} />
+          </mesh>
+        ))}
+
+        <group position={[0, 0.5, 0]}>
+          <mesh>
+            <sphereGeometry args={[HEAD_RADIUS, 24, 18]} />
+            <meshStandardMaterial color={skinColor} roughness={0.6} />
+          </mesh>
+          <Face look={look} skinColor={skinColor} />
+          <Hair look={look} />
+          <FacialHair look={look} />
+          {look.glasses && <Glasses />}
+          {look.beanie && <Beanie />}
+        </group>
+      </group>
+    </group>
+  );
+}
+
+function Chair() {
+  return (
+    <>
       <mesh position={[0, -0.5, -0.05]}>
         <cylinderGeometry args={[0.3, 0.3, 0.06, 20]} />
         <meshStandardMaterial color="#3b2416" roughness={0.7} />
@@ -59,65 +115,264 @@ export default function Character({ seed, color, sleepy = false, ...groupProps }
         <cylinderGeometry args={[0.22, 0.24, 0.04, 16]} />
         <meshStandardMaterial color="#2e1c11" roughness={0.7} />
       </mesh>
+    </>
+  );
+}
 
-      {/* Noge */}
-      {[-0.1, 0.1].map((x) => (
-        <group key={x}>
-          <mesh position={[x, -0.42, 0.14]} rotation-x={Math.PI / 2}>
-            <capsuleGeometry args={[0.075, 0.2, 4, 10]} />
-            <meshStandardMaterial color="#34405a" roughness={0.8} />
-          </mesh>
-          <mesh position={[x, -0.72, 0.3]}>
-            <capsuleGeometry args={[0.07, 0.42, 4, 10]} />
-            <meshStandardMaterial color="#34405a" roughness={0.8} />
-          </mesh>
-        </group>
-      ))}
-
-      <group ref={upperRef}>
-        {/* Tijelo */}
-        <mesh position={[0, -0.08, 0]}>
-          <capsuleGeometry args={[0.24, 0.36, 6, 16]} />
-          <meshStandardMaterial color={color} roughness={0.65} />
+function Face({ look, skinColor }: { look: Avatar; skinColor: string }) {
+  const female = look.gender === "f";
+  return (
+    <>
+      {/* Oči */}
+      {[-0.08, 0.08].map((x) => (
+        <mesh key={x} position={[x, 0.01, 0.215]}>
+          <sphereGeometry args={[0.028, 10, 8]} />
+          <meshStandardMaterial color="#1a1a1a" roughness={0.3} />
         </mesh>
-
-        {/* Ruke, blago ispružene prema stolu */}
-        {[-1, 1].map((side) => (
-          <mesh key={side} position={[side * 0.28, 0.02, 0.12]} rotation={[0.9, 0, side * -0.25]}>
-            <capsuleGeometry args={[0.065, 0.3, 4, 10]} />
-            <meshStandardMaterial color={color} roughness={0.65} />
+      ))}
+      {/* Trepavice */}
+      {female &&
+        [-1, 1].map((side) => (
+          <mesh key={side} position={[side * 0.105, 0.04, 0.212]} rotation-z={side * -0.6}>
+            <boxGeometry args={[0.03, 0.008, 0.01]} />
+            <meshStandardMaterial color="#1a1a1a" />
           </mesh>
         ))}
+      {/* Nos */}
+      <mesh position={[0, -0.025, 0.238]}>
+        <sphereGeometry args={[0.026, 10, 8]} />
+        <meshStandardMaterial color={skinColor} roughness={0.6} />
+      </mesh>
+      {/* Osmijeh (žene s ružem) */}
+      <mesh position={[0, -0.085, 0.208]} rotation-z={PI}>
+        <torusGeometry args={[0.048, female ? 0.014 : 0.011, 6, 16, PI]} />
+        <meshStandardMaterial color={female ? "#b8324f" : "#7a3b2e"} roughness={0.5} />
+      </mesh>
+    </>
+  );
+}
 
-        {/* Glava */}
-        <group position={[0, 0.5, 0]}>
-          <mesh>
-            <sphereGeometry args={[0.24, 24, 18]} />
-            <meshStandardMaterial color={skin} roughness={0.6} />
+function HairMaterial({ color, opacity = 1 }: { color: string; opacity?: number }) {
+  return <meshStandardMaterial color={color} roughness={0.85} transparent={opacity < 1} opacity={opacity} />;
+}
+
+/** Kapa kose preko tjemena; nagnuta unatrag da se vidi čelo */
+function Cap({ color, radius = 0.252, tilt = -0.28, thetaLength = PI * 0.5 }: { color: string; radius?: number; tilt?: number; thetaLength?: number }) {
+  return (
+    <mesh rotation-x={tilt} position-y={0.01}>
+      <sphereGeometry args={[radius, 24, 12, 0, PI * 2, 0, thetaLength]} />
+      <HairMaterial color={color} />
+    </mesh>
+  );
+}
+
+/** Kosa na zatiljku, od thetaStart do thetaEnd (0 = tjeme, π = brada) */
+function BackShell({ color, from, to, radius = 0.252 }: { color: string; from: number; to: number; radius?: number }) {
+  return (
+    <mesh>
+      <sphereGeometry args={[radius, 24, 12, PI, PI, from, to - from]} />
+      <HairMaterial color={color} />
+    </mesh>
+  );
+}
+
+/** Kovrče: male kuglice raspoređene po gornjem dijelu glave (bez čela) */
+function Curls({ color, size = 0.075, count = 22 }: { color: string; size?: number; count?: number }) {
+  const curls: [number, number, number][] = [];
+  for (let i = 0; i < count * 2 && curls.length < count; i++) {
+    const theta = Math.acos(1 - (i + 0.5) / (count * 2)) * 1.25; // gušće pri tjemenu
+    const phi = i * 2.39996; // zlatni kut
+    const y = Math.cos(theta) * 0.245;
+    const z = Math.sin(phi) * Math.sin(theta) * 0.245;
+    const x = -Math.cos(phi) * Math.sin(theta) * 0.245;
+    if (z > 0.1 && y < 0.14) continue; // ostavi čelo slobodno
+    curls.push([x, y + 0.01, z]);
+  }
+  return (
+    <>
+      {curls.map((p, i) => (
+        <mesh key={i} position={p}>
+          <sphereGeometry args={[size, 8, 6]} />
+          <HairMaterial color={color} />
+        </mesh>
+      ))}
+    </>
+  );
+}
+
+function Hair({ look }: { look: Avatar }) {
+  const c = look.hairColor;
+  switch (look.hair) {
+    case "short":
+      return (
+        <>
+          <Cap color={c} />
+          <BackShell color={c} from={PI * 0.3} to={PI * 0.7} />
+        </>
+      );
+    case "curly":
+      return (
+        <>
+          <Cap color={c} tilt={-0.35} radius={0.246} />
+          <Curls color={c} />
+          <BackShell color={c} from={PI * 0.3} to={PI * 0.66} radius={0.256} />
+        </>
+      );
+    case "bald":
+      // Samo vijenac kose iznad ušiju i na zatiljku
+      return <BackShell color={c} from={PI * 0.48} to={PI * 0.68} radius={0.248} />;
+    case "bun":
+      return (
+        <>
+          <BackShell color={c} from={PI * 0.4} to={PI * 0.7} />
+          <mesh position={[0, -0.02, -0.27]}>
+            <sphereGeometry args={[0.085, 12, 10]} />
+            <HairMaterial color={c} />
           </mesh>
-          {/* Kosa — kapa preko tjemena i zatiljka (vidi se kad lik gleda od kamere) */}
-          <mesh position={[0, 0.05, -0.03]} scale={[1.06, 0.92, 1.06]}>
-            <sphereGeometry args={[0.245, 24, 12, 0, Math.PI * 2, 0, Math.PI * 0.55]} />
-            <meshStandardMaterial color={hair} roughness={0.8} />
+        </>
+      );
+    case "long":
+      return (
+        <>
+          <Cap color={c} tilt={-0.25} />
+          <BackShell color={c} from={PI * 0.3} to={PI * 0.82} radius={0.26} />
+          {/* Kosa niz leđa */}
+          <mesh position={[0, -0.28, -0.19]}>
+            <boxGeometry args={[0.44, 0.42, 0.07]} />
+            <HairMaterial color={c} />
           </mesh>
-          <mesh position={[0, -0.02, -0.06]} scale={[1.02, 1, 0.9]}>
-            <sphereGeometry args={[0.24, 20, 12, Math.PI * 0.15, Math.PI * 0.7, Math.PI * 0.3, Math.PI * 0.45]} />
-            <meshStandardMaterial color={hair} roughness={0.8} />
-          </mesh>
-          {/* Oči */}
-          {[-0.08, 0.08].map((x) => (
-            <mesh key={x} position={[x, 0.01, 0.215]}>
-              <sphereGeometry args={[0.028, 10, 8]} />
-              <meshStandardMaterial color="#1a1a1a" roughness={0.3} />
+          {/* Pramenovi uz lice */}
+          {[-1, 1].map((side) => (
+            <mesh key={side} position={[side * 0.215, -0.14, 0.03]}>
+              <boxGeometry args={[0.065, 0.36, 0.1]} />
+              <HairMaterial color={c} />
             </mesh>
           ))}
-          {/* Osmijeh */}
-          <mesh position={[0, -0.075, 0.21]} rotation-z={Math.PI}>
-            <torusGeometry args={[0.05, 0.011, 6, 16, Math.PI]} />
-            <meshStandardMaterial color="#7a3b2e" roughness={0.6} />
+        </>
+      );
+    case "ponytail":
+      return (
+        <>
+          <Cap color={c} tilt={-0.3} />
+          <BackShell color={c} from={PI * 0.3} to={PI * 0.62} />
+          <mesh position={[0, 0.08, -0.25]}>
+            <sphereGeometry args={[0.045, 10, 8]} />
+            <meshStandardMaterial color="#d6336c" roughness={0.6} />
           </mesh>
-        </group>
-      </group>
+          <mesh position={[0, -0.1, -0.32]} rotation-x={-0.35}>
+            <capsuleGeometry args={[0.055, 0.28, 4, 10]} />
+            <HairMaterial color={c} />
+          </mesh>
+        </>
+      );
+    case "bob":
+      return (
+        <>
+          <Cap color={c} tilt={-0.2} radius={0.262} />
+          {/* Zatiljak i bokovi do brade */}
+          <mesh>
+            <sphereGeometry args={[0.266, 24, 12, PI * 0.9, PI * 1.2, PI * 0.2, PI * 0.5]} />
+            <HairMaterial color={c} />
+          </mesh>
+          {/* Šiške */}
+          <mesh>
+            <sphereGeometry args={[0.258, 20, 6, PI * 0.2, PI * 0.6, PI * 0.08, PI * 0.2]} />
+            <HairMaterial color={c} />
+          </mesh>
+        </>
+      );
+    case "topBun":
+      return (
+        <>
+          <Cap color={c} tilt={-0.3} radius={0.246} />
+          <Curls color={c} size={0.06} count={18} />
+          <mesh position={[0, 0.28, -0.04]}>
+            <sphereGeometry args={[0.11, 14, 10]} />
+            <HairMaterial color={c} />
+          </mesh>
+          {[0, 1, 2, 3, 4].map((i) => (
+            <mesh key={i} position={[Math.cos(i * 1.26) * 0.09, 0.3 + (i % 2) * 0.04, -0.04 + Math.sin(i * 1.26) * 0.09]}>
+              <sphereGeometry args={[0.045, 8, 6]} />
+              <HairMaterial color={c} />
+            </mesh>
+          ))}
+        </>
+      );
+  }
+}
+
+function FacialHair({ look }: { look: Avatar }) {
+  const c = look.hairColor;
+  const mustache = (
+    <>
+      {[-1, 1].map((side) => (
+        <mesh key={side} position={[side * 0.04, -0.056, 0.236]} rotation-z={PI / 2 + side * 0.4}>
+          <capsuleGeometry args={[0.022, 0.06, 4, 8]} />
+          <HairMaterial color={c} />
+        </mesh>
+      ))}
+    </>
+  );
+  // Brada: donji prednji dio glave
+  const beardShell = (opacity: number) => (
+    <mesh>
+      <sphereGeometry args={[0.25, 20, 10, PI * 0.08, PI * 0.84, PI * 0.58, PI * 0.36]} />
+      <HairMaterial color={c} opacity={opacity} />
+    </mesh>
+  );
+
+  switch (look.facialHair) {
+    case "beard":
+      return (
+        <>
+          {beardShell(1)}
+          {mustache}
+        </>
+      );
+    case "stubble":
+      return beardShell(0.35);
+    case "mustache":
+      return mustache;
+    default:
+      return null;
+  }
+}
+
+function Glasses() {
+  return (
+    <group position={[0, 0.012, 0.228]}>
+      {[-1, 1].map((side) => (
+        <mesh key={side} position={[side * 0.085, 0, 0]}>
+          <torusGeometry args={[0.055, 0.01, 8, 20]} />
+          <meshStandardMaterial color="#1c1c1c" roughness={0.3} metalness={0.4} />
+        </mesh>
+      ))}
+      <mesh rotation-z={PI / 2}>
+        <capsuleGeometry args={[0.007, 0.05, 4, 6]} />
+        <meshStandardMaterial color="#1c1c1c" roughness={0.3} metalness={0.4} />
+      </mesh>
+    </group>
+  );
+}
+
+function Beanie() {
+  const color = "#2f5d6b";
+  return (
+    <group rotation-x={-0.18} position-y={0.015}>
+      <mesh>
+        <sphereGeometry args={[0.27, 24, 12, 0, PI * 2, 0, PI * 0.46]} />
+        <meshStandardMaterial color={color} roughness={0.95} />
+      </mesh>
+      {/* Zavrnuti rub */}
+      <mesh position-y={0.034} rotation-x={PI / 2}>
+        <torusGeometry args={[0.262, 0.034, 8, 32]} />
+        <meshStandardMaterial color={color} roughness={0.95} />
+      </mesh>
+      {/* Pompon */}
+      <mesh position-y={0.29}>
+        <sphereGeometry args={[0.055, 10, 8]} />
+        <meshStandardMaterial color="#e9e4d8" roughness={1} />
+      </mesh>
     </group>
   );
 }

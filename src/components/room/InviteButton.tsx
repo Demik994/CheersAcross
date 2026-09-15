@@ -33,7 +33,13 @@ export default function InviteButton({ code }: { code: string }) {
       onClick={() => void invite()}
       className="pointer-events-auto flex h-10 items-center gap-2 rounded-full bg-amber-300 px-4 text-sm font-semibold text-stone-900 shadow-lg active:bg-amber-200"
     >
-      {copied ? "Link kopiran ✓" : "Pozovi goste"}
+      {copied ? (
+        "Kopirano ✓"
+      ) : (
+        <>
+          Pozovi<span className="hidden sm:inline"> goste</span>
+        </>
+      )}
     </button>
   );
 }

@@ -6,7 +6,7 @@ export async function POST(request: Request, ctx: RouteContext<"/api/rooms/[code
   return handle(async () => {
     const code = parseCode((await ctx.params).code);
     const body = await readJson(request);
-    const result = await joinRoom(code, { name: body.name, pin: body.pin });
+    const result = await joinRoom(code, { name: body.name, pin: body.pin, avatar: body.avatar, skin: body.skin });
     await publishRoomState(code);
     return Response.json(result, { status: 201 });
   });

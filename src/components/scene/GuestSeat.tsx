@@ -41,6 +41,8 @@ export default function GuestSeat({ guest, angle, isMe, offline, badge, showLabe
       {/* rotation π: lice lika (+Z) gleda prema sredini stola */}
       <Character
         seed={guest.id}
+        avatar={guest.avatar}
+        skin={guest.skin}
         color={offline ? "#6f6a66" : guest.color}
         sleepy={offline}
         position={[0, TABLE_TOP_Y, SEAT_RADIUS]}

@@ -1,5 +1,6 @@
 "use client";
 
+import type { AvatarId } from "@/lib/avatars";
 import type { DrinkId } from "@/lib/drinks";
 import type { GuestSession, RoomState } from "@/lib/rooms/types";
 
@@ -42,19 +43,21 @@ async function request<T>(path: string, { method = "GET", json, form, session }:
   return data as T;
 }
 
+export type Look = { avatar: AvatarId; skin: number };
+
 const roomPath = (code: string) => `/api/rooms/${encodeURIComponent(code)}`;
 
 export const roomApi = {
-  create: (name: string, pin: string | null) =>
+  create: (name: string, pin: string | null, look: Look) =>
     request<{ code: string; session: GuestSession }>("/api/rooms", {
       method: "POST",
-      json: { name, pin: pin || undefined },
+      json: { name, pin: pin || undefined, ...look },
     }),
 
-  join: (code: string, name: string, pin: string | null) =>
+  join: (code: string, name: string, pin: string | null, look: Look) =>
     request<{ session: GuestSession }>(`${roomPath(code)}/join`, {
       method: "POST",
-      json: { name, pin: pin || undefined },
+      json: { name, pin: pin || undefined, ...look },
     }),
 
   state: (code: string, session: GuestSession) =>
@@ -62,6 +65,9 @@ export const roomApi = {
 
   setDrink: (code: string, session: GuestSession, drink: DrinkId) =>
     request<void>(`${roomPath(code)}/me`, { method: "PATCH", json: { drink }, session }),
+
+  setLook: (code: string, session: GuestSession, look: Look) =>
+    request<void>(`${roomPath(code)}/me`, { method: "PATCH", json: look, session }),
 
   leave: (code: string, session: GuestSession) =>
     request<void>(`${roomPath(code)}/me`, { method: "DELETE", session }),

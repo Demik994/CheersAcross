@@ -7,11 +7,12 @@ import DrinkMenu from "@/components/ui/DrinkMenu";
 import PhotoUpload from "@/components/ui/PhotoUpload";
 import { useLiveRoom } from "@/hooks/useLiveRoom";
 import type { DrinkId } from "@/lib/drinks";
-import { roomApi } from "@/lib/roomApi";
+import { roomApi, type Look } from "@/lib/roomApi";
 import type { GuestSession, PublicGuest } from "@/lib/rooms/types";
 import { DRINK_DURATION_MS, REVEAL_ALREADY_DONE } from "@/lib/party/geometry";
 import { clearSession } from "@/lib/session";
 import { playCelebration, unlockAudio } from "@/lib/sound";
+import AvatarSheet from "./AvatarSheet";
 import GuestListSheet from "./GuestListSheet";
 import InviteButton from "./InviteButton";
 import { FullscreenMessage } from "./RoomClient";
@@ -38,6 +39,7 @@ export default function RoomView({ code, session }: { code: string; session: Gue
   const [celebratedRound, setCelebratedRound] = useState<number | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
   const [guestListOpen, setGuestListOpen] = useState(false);
+  const [avatarOpen, setAvatarOpen] = useState(false);
 
   // Token više ne vrijedi (gost je uklonjen ili je izašao na drugom tabu) — natrag na formu za ulazak
   useEffect(() => {
@@ -80,6 +82,11 @@ export default function RoomView({ code, session }: { code: string; session: Gue
       setActionError(err instanceof Error ? err.message : "Promjena pića nije uspjela.");
       void refresh();
     }
+  }
+
+  async function changeLook(look: Look) {
+    await roomApi.setLook(code, session, look);
+    mutate((s) => ({ ...s, guests: s.guests.map((g) => (g.id === meId ? { ...g, ...look } : g)) }));
   }
 
   async function uploadPhoto(photo: Blob) {
@@ -141,6 +148,16 @@ export default function RoomView({ code, session }: { code: string; session: Gue
         </button>
         <div className="flex items-center gap-2">
           <InviteButton code={code} />
+          {me && (
+            <button
+              type="button"
+              onClick={() => setAvatarOpen(true)}
+              aria-label="Promijeni svoj lik"
+              className="pointer-events-auto flex size-10 items-center justify-center rounded-full bg-stone-900/75 text-lg shadow-lg backdrop-blur active:bg-stone-800"
+            >
+              🧑
+            </button>
+          )}
           <button
             type="button"
             onClick={() => void leave()}
@@ -180,6 +197,15 @@ export default function RoomView({ code, session }: { code: string; session: Gue
           )}
         </div>
       </section>
+
+      {avatarOpen && me && (
+        <AvatarSheet
+          initial={{ avatar: me.avatar, skin: me.skin }}
+          color={me.color}
+          onSave={changeLook}
+          onClose={() => setAvatarOpen(false)}
+        />
+      )}
 
       {guestListOpen && (
         <GuestListSheet

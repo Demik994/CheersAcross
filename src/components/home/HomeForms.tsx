@@ -2,8 +2,9 @@
 
 import { useRouter } from "next/navigation";
 import { useState, type FormEvent } from "react";
+import AvatarPicker, { DEFAULT_LOOK } from "@/components/avatar/AvatarPicker";
 import { Field, FormError, PinInput, inputClass, primaryButtonClass } from "@/components/ui/fields";
-import { roomApi } from "@/lib/roomApi";
+import { roomApi, type Look } from "@/lib/roomApi";
 import { ROOM_CODE_LENGTH, normalizeRoomCode } from "@/lib/rooms/codes";
 import { NAME_MAX_LENGTH, PIN_LENGTH } from "@/lib/rooms/types";
 import { saveSession } from "@/lib/session";
@@ -27,6 +28,7 @@ function CreateRoomForm() {
   const [name, setName] = useState("");
   const [usePin, setUsePin] = useState(false);
   const [pin, setPin] = useState("");
+  const [look, setLook] = useState<Look>(DEFAULT_LOOK);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -39,7 +41,7 @@ function CreateRoomForm() {
     }
     setBusy(true);
     try {
-      const { code, session } = await roomApi.create(name, usePin ? pin : null);
+      const { code, session } = await roomApi.create(name, usePin ? pin : null, look);
       saveSession(code, session);
       router.push(`/soba/${code}`);
     } catch (err) {
@@ -62,6 +64,11 @@ function CreateRoomForm() {
           required
         />
       </Field>
+
+      <div className="flex flex-col gap-1.5">
+        <span className="text-sm font-medium text-foreground/80">Tvoj lik za stolom</span>
+        <AvatarPicker value={look} onChange={setLook} />
+      </div>
 
       <label className="flex items-center gap-3 text-sm">
         <input
