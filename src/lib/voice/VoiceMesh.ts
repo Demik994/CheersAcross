@@ -1,7 +1,7 @@
 "use client";
 
 import type { ClientMessage, Peer, SignalData } from "@/lib/party/protocol";
-import type { DrunkLevel } from "@/lib/drunk";
+import { drunkVoiceSemitones, type DrunkLevel } from "@/lib/drunk";
 import { getContext } from "@/lib/sound";
 import { DRUNK_PITCH_PROCESSOR, loadDrunkPitch } from "./drunkPitch";
 
@@ -14,8 +14,8 @@ import { DRUNK_PITCH_PROCESSOR, loadDrunkPitch } from "./drunkPitch";
  *   "pristojna" strana (veći id) popušta kad se ponude sudare.
  * - Signalizacija (SDP i ICE kandidati) ide preko real-time servera.
  * - Glasnoća svakog gosta mjeri se lokalno (AnalyserNode) za animaciju usta i prstena.
- * - Pijani glas: visina mog glasa polako se njiše iz dubokog u visoko (što pijaniji,
- *   to jače) — to čuju ostali. Trijezan šalje sirovi mikrofon.
+ * - Pijani glas: moj glas postane viši ili dublji (smjer je "slučajan" po gostu, pomak raste
+ *   s pijanstvom) — to čuju ostali. Trijezan šalje sirovi mikrofon.
  */
 
 type PeerLink = {
@@ -33,15 +33,6 @@ type PeerLink = {
 };
 
 const LEVEL_INTERVAL_MS = 100;
-
-/** Pijani glas po razini: najveći pomak visine (polutonovi) i brzina njihanja (Hz) — polako */
-const DRUNK_VOICE: Record<DrunkLevel, { depth: number; rate: number }> = {
-  0: { depth: 0, rate: 0.1 },
-  1: { depth: 2.5, rate: 0.1 },
-  2: { depth: 4.5, rate: 0.12 },
-  3: { depth: 6.5, rate: 0.15 },
-  4: { depth: 8, rate: 0.18 },
-};
 
 type DrunkChain = {
   source: MediaStreamAudioSourceNode;
@@ -76,6 +67,7 @@ export class VoiceMesh {
     this.send = options.send;
     this.myId = options.myId;
     this.myGuestId = options.myGuestId;
+    this.setDrunkLevel(this.drunkLevel);
     this.onAudioBlocked = options.onAudioBlocked;
     // Novi id konekcije (ponovno spajanje) — stare veze više ne vrijede
     if (idChanged) for (const id of [...this.links.keys()]) this.closeLink(id);
@@ -114,10 +106,9 @@ export class VoiceMesh {
     const chain = this.drunkChain;
     const ctx = getContext();
     if (chain && ctx) {
-      const p = DRUNK_VOICE[level];
-      const now = ctx.currentTime;
-      chain.pitch.parameters.get("depth")?.setTargetAtTime(p.depth, now, 1.5);
-      chain.pitch.parameters.get("rate")?.setTargetAtTime(p.rate, now, 0.5);
+      // Glas polako "klizne" u novu visinu
+      const semitones = drunkVoiceSemitones(this.myGuestId, level);
+      chain.pitch.parameters.get("semitones")?.setTargetAtTime(semitones, ctx.currentTime, 0.8);
     }
     this.refreshOutgoing();
   }

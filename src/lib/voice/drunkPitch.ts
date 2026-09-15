@@ -1,7 +1,7 @@
 "use client";
 
 /**
- * "Pijani" glas: visina tona polako se njiše iz dubokog u visoko i natrag.
+ * "Pijani" glas: pomak visine tona (gore = "vjeverica", dolje = "medvjed").
  *
  * Web Audio nema gotov pitch shifter, pa ga radimo u AudioWorkletu (zaseban audio thread):
  * granularni pomak visine — dvije "glave" čitaju nedavni zvuk brže ili sporije od stvarnog
@@ -17,10 +17,8 @@ const MAX_DELAY_SECONDS = 0.12;
 class DrunkPitchProcessor extends AudioWorkletProcessor {
   static get parameterDescriptors() {
     return [
-      // najveći pomak u polutonovima (0 = bez efekta)
-      { name: "depth", defaultValue: 0, minValue: 0, maxValue: 12, automationRate: "k-rate" },
-      // koliko brzo se njiše (Hz)
-      { name: "rate", defaultValue: 0.12, minValue: 0.01, maxValue: 2, automationRate: "k-rate" },
+      // pomak u polutonovima: pozitivno = viši glas, negativno = dublji (0 = bez efekta)
+      { name: "semitones", defaultValue: 0, minValue: -12, maxValue: 12, automationRate: "k-rate" },
     ];
   }
 
@@ -30,8 +28,6 @@ class DrunkPitchProcessor extends AudioWorkletProcessor {
     this.buffer = new Float32Array(this.length);
     this.write = 0;
     this.grain = 0;
-    // −cos: njihanje kreće iz dubokog glasa
-    this.swing = 0;
   }
 
   read(delay) {
@@ -49,11 +45,7 @@ class DrunkPitchProcessor extends AudioWorkletProcessor {
     if (!output || output.length === 0) return true;
     const frames = output[0].length;
 
-    const depth = parameters.depth[0];
-    const rate = parameters.rate[0];
-    this.swing = (this.swing + (rate * frames) / sampleRate) % 1;
-    const semitones = -depth * Math.cos(2 * Math.PI * this.swing);
-    const ratio = Math.pow(2, semitones / 12);
+    const ratio = Math.pow(2, parameters.semitones[0] / 12);
     const maxDelay = this.length - 3;
     const span = Math.min(maxDelay, (Math.abs(ratio - 1) * sampleRate) / GRAINS_PER_SECOND);
     const grainStep = GRAINS_PER_SECOND / sampleRate;

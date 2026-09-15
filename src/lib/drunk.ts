@@ -32,6 +32,20 @@ export function drunkLevel(standardDrinkCount: number): DrunkLevel {
   return level as DrunkLevel;
 }
 
+/** Koliko se pijanom gostu pomakne visina glasa (polutonovi) po razini */
+const VOICE_SHIFT: Record<DrunkLevel, number> = { 0: 0, 1: 2.5, 2: 4.5, 3: 6.5, 4: 8 };
+
+/**
+ * Pijani glas: svaki gost "slučajno" dobije ili visok ili dubok glas. Smjer ovisi o id-u gosta,
+ * pa je uvijek isti (i nakon osvježavanja stranice), a pomak raste s pijanstvom.
+ */
+export function drunkVoiceSemitones(guestId: string, level: DrunkLevel): number {
+  let hash = 0;
+  for (let i = 0; i < guestId.length; i++) hash = (hash * 31 + guestId.charCodeAt(i)) | 0;
+  const high = (hash >>> 0) % 2 === 0;
+  return (high ? 1 : -1) * VOICE_SHIFT[level];
+}
+
 /** Novo stanje nakon što gost popije jednu porciju */
 export function afterDrinking(current: number, drinkId: unknown): number {
   const id = normalizeDrinkId(drinkId);
